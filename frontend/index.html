@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <title>NutriAnalytics Pro</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+
+    <div id="app-container">
+        
+        <header>
+            <h1>🥑 NutriAnalytics <span style="font-weight:300">| Preference Explorer</span></h1>
+            <div class="stats" id="variance-info">Variance Explained: <span>...</span></div>
+        </header>
+
+        <div id="parallel-container" class="panel">
+            <h2>1. Preference Tuner (Drag sliders to adjust weights)</h2>
+            <div id="parallel-chart" class="chart-wrapper"></div>
+        </div>
+
+        <div id="scatter-container" class="panel">
+            <div id="scatter-header">
+                <h2>2. Similarity Landscape</h2>
+                
+                <div id="scatter-controls">
+                    <label for="dominance-slider">Purity:</label>
+                    <input type="range" id="dominance-slider" min="0.3" max="1.0" step="0.1" value="0.3">
+                    <span id="dominance-val">All</span>
+                </div>
+            </div>
+            
+            <div id="scatter-chart" class="chart-wrapper"></div>
+        </div>
+
+        <div id="detail-container" class="panel">
+            <h2>3. Product Details & Trade-offs</h2>
+            <div id="detail-content">
+                <p style="color:#999; text-align:center; margin-top:20%">
+                    Passa il mouse su un prodotto per vedere i dettagli.
+                </p>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="main.js"></script>
+</body>
+</html>
