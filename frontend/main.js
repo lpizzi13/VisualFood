@@ -1,9 +1,14 @@
 // Configurazione
 const API_URL = "http://127.0.0.1:5000/api";
 // Margini aumentati in alto per ospitare etichette e slider
-const MARGIN_PARALLEL = { top: 80, right: 30, bottom: 20, left: 40 }; 
+let MARGIN_PARALLEL = { top: 80, right: 30, bottom: 20, left: 40 };
 const MARGIN_SCATTER = { top: 20, right: 20, bottom: 30, left: 40 };
 
+const COMPARE_COLORS = [
+    "#e74c3c", // 1. Rosso (Principale)
+    "#3498db", // 2. Blu (Confronto A)
+    "#f1c40f"  // 3. Giallo Oro (Confronto B)
+];
 
 // Stato Globale
 let state = {
@@ -11,7 +16,8 @@ let state = {
     dataRaw: [],
     weights: {},
     projection: [],
-    minDominance: 0.0
+    minDominance: 1.0,
+    selectedIds: []
 };
 
 const labelMap = {
@@ -41,6 +47,32 @@ let scatterContainerSize = { width: 0, height: 0 };
 let tooltip;
 let selectedProductId = null;
 let dominanceMap = new Map(); // Lookup veloce ID -> Share
+
+
+// Helper per determinare il colore di un punto
+function getPointColor(id) {
+    const idx = state.selectedIds.indexOf(id);
+    if (idx > -1) return COMPARE_COLORS[idx]; // È selezionato: usa il suo colore
+    return "#00e676"; // Non è selezionato: Verde base
+}
+
+// Helper per determinare l'opacità
+function getPointOpacity(id) {
+    // Se non c'è NESSUNA selezione attiva, tutto è visibile (0.6)
+    if (state.selectedIds.length === 0) return 0.6;
+    // Se c'è una selezione: i selezionati sono 1, gli altri 0.1 (offuscati)
+    return state.selectedIds.includes(id) ? 1 : 0.5;
+}
+
+// Helper per il raggio
+function getPointRadius(id) {
+    return state.selectedIds.includes(id) ? 10 : 4;
+}
+
+// Helper per il bordo
+function getPointStroke(id) {
+    return state.selectedIds.includes(id) ? "#333" : "transparent";
+}
 
 async function init() {
     console.log("🚀 Avvio applicazione...");
@@ -152,6 +184,7 @@ function setupParallelCoordinates() {
 
     // Leggi dimensioni reali
     const bbox = container.node().getBoundingClientRect();
+
     const width = bbox.width - MARGIN_PARALLEL.left - MARGIN_PARALLEL.right;
     const height = bbox.height - MARGIN_PARALLEL.top - MARGIN_PARALLEL.bottom;
 
@@ -206,7 +239,7 @@ function setupParallelCoordinates() {
         .style("text-anchor", "middle")
         .attr("y", -60) // Sopra lo slider
         .text(d => getShortLabel(d)) 
-        .style("fill", "#2c3e50")
+        .style("fill", "#bdc3c7")
         .style("font-size", "10px")
         .style("font-weight", "bold")
         .style("cursor", "help")
@@ -242,6 +275,9 @@ function setupParallelCoordinates() {
                 updateProjection(); 
             })
         );
+    if (state.selectedIds.length > 0) {
+        updateParallelLines();
+    }
 }
 
 // --- 2. SCATTERPLOT ---
@@ -281,209 +317,288 @@ function setupScatterplot() {
     
     // Gruppo punti
     svgScatter.append("g").attr("class", "dots");
+    svgScatter.append("g").attr("class", "labels");
 }
 
 function updateScatterplotVis() {
     if (!svgScatter || state.projection.length === 0) return;
 
-    // --- FILTRAGGIO DATI (IL CUORE DELLA NUOVA FUNZIONE) ---
-    // Usiamo la mappa dominanceMap per filtrare velocemente
+    // --- 1. FILTRAGGIO DATI (Slider Purity) ---
     const filteredData = state.projection.filter(d => {
         const share = dominanceMap.get(d.id);
         return share >= state.minDominance;
     });
 
-    console.log(`📉 Mostrando ${filteredData.length} su ${state.projection.length} prodotti (Filtro: >${state.minDominance})`);
+    console.log(`📉 Scatterplot: visualizzo ${filteredData.length} punti.`);
 
-    // 1. Aggiorna Scale
+    // --- 2. AGGIORNAMENTO SCALE ---
     const xExt = d3.extent(filteredData, d => d.x);
     const yExt = d3.extent(filteredData, d => d.y);
-    const padX = (xExt[1] - xExt[0]) * 0.1;
+    
+    // Evitiamo crash se il filtro svuota tutto
+    if (!xExt[0]) {
+        svgScatter.select(".dots").selectAll("circle").remove();
+        return; 
+    }
+
+    const padX = (xExt[1] - xExt[0]) * 0.1; 
     const padY = (yExt[1] - yExt[0]) * 0.1;
 
     xScatter.domain([xExt[0] - padX, xExt[1] + padX]);
     yScatter.domain([yExt[0] - padY, yExt[1] + padY]);
 
-    // 2. Transizione Assi
-    xAxisScatter.transition().duration(800).call(d3.axisBottom(xScatter).ticks(5));
-    yAxisScatter.transition().duration(800).call(d3.axisLeft(yScatter).ticks(5));
+    xAxisScatter.transition().duration(500).call(d3.axisBottom(xScatter).ticks(5));
+    yAxisScatter.transition().duration(500).call(d3.axisLeft(yScatter).ticks(5));
 
-    // 3. JOIN DEI PUNTI (Logica Core)
-    const dots = svgScatter.select(".dots")
-        .selectAll("circle")
-        .data(filteredData, d => d.id); // IMPORTANTE: key by ID
+    // --- 3. RENDERING PUNTI (JOIN) ---
+    const dots = svgScatter.select(".dots").selectAll("circle")
+        .data(filteredData, d => d.id);
 
     dots.join(
+        // ENTER: Nuovi punti
         enter => enter.append("circle")
-            .attr("r", 4) // Nasce piccolo
             .attr("cx", d => xScatter(d.x))
             .attr("cy", d => yScatter(d.y))
-            .attr("fill", "#27ae60")
-            .attr("opacity", 0.6)
-            .attr("stroke", "transparent")
-            .attr("stroke-width", 10), // Trucco: aumenta l'area cliccabile invisibile
+            .attr("r", d => getPointRadius(d.id))
+            .attr("fill", d => getPointColor(d.id))
+            .attr("opacity", d => getPointOpacity(d.id))
+            .attr("stroke", d => getPointStroke(d.id))
+            .attr("stroke-width", 2),
         
+        // UPDATE: Punti esistenti (Movimento istantaneo + Aggiornamento Stile)
         update => update
             .attr("cx", d => xScatter(d.x))
-            .attr("cy", d => yScatter(d.y)),
-        
-        exit => exit.remove()
+            .attr("cy", d => yScatter(d.y))
+            // Qui applichiamo lo stile corrente (Multi-Selezione)
+            .attr("r", d => getPointRadius(d.id))
+            .attr("fill", d => getPointColor(d.id))
+            .attr("opacity", d => getPointOpacity(d.id))
+            .attr("stroke", d => getPointStroke(d.id))
     )
+    .sort((a, b) => {
+        const aSel = state.selectedIds.includes(a.id);
+        const bSel = state.selectedIds.includes(b.id);
+        // Se a è selezionato e b no, a va dopo (1). Se uguali, non cambiare (0).
+        return (aSel === bSel) ? 0 : aSel ? 1 : -1;
+    })
+    // --- 4. GESTIONE EVENTI (MOUSE) ---
     .on("mouseover", function(event, d) {
-
-        // 2. Recupera i dati reali
+        // A. TOOLTIP
         const product = state.dataRaw.find(p => p.id === d.id);
-        if (!product) return;
-
-        if (selectedProductId === null) {
-            d3.select(this).attr("r", 8).attr("opacity", 1);
+        if (product) {
+            tooltip.html(`
+                <h4>${product.food}</h4>
+                <div style="font-size:11px; color:#aaa; margin-bottom:5px">Purity: ${Math.round(product.dominant_share*100)}%</div>
+                <p>🔥 ${Math.round(product["Caloric Value"])} Kcal</p>
+            `);
+            tooltip.style("visibility", "visible");
         }
 
-        // 3. Popola il Tooltip con HTML
-        tooltip.html(`
-            <h4>${product.food}</h4>
-            <p>🔥 <b>Kcal:</b> ${Math.round(product["Caloric Value"])}</p>
-            <p>🥩 <b>Protein:</b> ${product["Protein"]} g</p>
-            <p>🥑 <b>Fat:</b> ${product["Total Fat"]} g</p>
-            <p>🍞 <b>Carbs:</b> ${product["Carbohydrates"]} g</p>
-            <p>🍬 <b>Sugar:</b> ${product["Sugars"]} g</p>
-        `);
-
-        // 4. Mostra il tooltip
-        tooltip.style("visibility", "visible");
+        // B. EVIDENZIAZIONE VISIVA (PREVIEW)
+        // Se il punto NON è già selezionato, facciamolo "brillare" per far capire che è cliccabile
+        if (!state.selectedIds.includes(d.id)) {
+            d3.select(this)
+                .attr("r", 8)
+                .attr("opacity", 1)
+                .attr("fill", "#8e44ad"); // Ciano (Colore di anteprima/hover)
+        }
     })
     .on("mousemove", function(event) {
-        // Il tooltip segue il mouse
-        tooltip
-            .style("top", (event.pageY - 15) + "px")
-            .style("left", (event.pageX) + "px");
+        tooltip.style("top", (event.pageY - 15) + "px").style("left", (event.pageX) + "px");
     })
-    .on("mouseout", function() {
+    .on("mouseout", function(event, d) {
         tooltip.style("visibility", "hidden");
         
-        // Logica conservazione colore (quella che abbiamo fatto poco fa)
-        if (selectedProductId !== null) {
-            if (d.id === selectedProductId) {
-                // Resta evidenziato
-                d3.select(this).attr("fill", "#e74c3c").attr("r", 10).attr("opacity", 1).attr("stroke", "#333");
-            } else {
-                // Resta verde normale
-                d3.select(this).attr("fill", "#27ae60").attr("r", 4).attr("opacity", 0.6).attr("stroke", "transparent");
-            }
-        } else {
-            // Reset completo se non c'è selezione
-            d3.select(this).attr("fill", "#27ae60").attr("r", 4).attr("opacity", 0.6).attr("stroke", "transparent");
-        }
+        // C. RIPRISTINO STATO CORRETTO
+        // Quando il mouse esce, il punto deve tornare esattamente come deve essere
+        // secondo la logica della selezione globale.
+        d3.select(this)
+            .attr("r", getPointRadius(d.id))
+            .attr("fill", getPointColor(d.id))
+            .attr("opacity", getPointOpacity(d.id))
+            .attr("stroke", getPointStroke(d.id));
     })
     .on("click", function(event, d) {
-        // Ferma la propagazione per non attivare il reset dello sfondo
         event.stopPropagation();
-        
-        // ATTIVA IL LINKING
-        highlightProduct(d.id);
+        toggleProduct(d.id);
     });
+
+    const selectedPoints = filteredData.filter(d => state.selectedIds.includes(d.id));
+
+    const labels = svgScatter.select(".labels").selectAll("text")
+        .data(selectedPoints, d => d.id);
+
+    labels.join(
+        // ENTER: Appari con dissolvenza
+        enter => enter.append("text")
+            .attr("x", d => xScatter(d.x))
+            .attr("y", d => yScatter(d.y) - 15) // 15px sopra il pallino
+            .text(d => {
+                const p = state.dataRaw.find(item => item.id === d.id);
+                // Tronca se troppo lungo (> 20 caratteri)
+                const name = p ? p.food : "";
+                return name.length > 25 ? name.substring(0, 23) + ".." : name;
+            })
+            .attr("text-anchor", "middle") // Centrato orizzontalmente
+            .style("font-family", "sans-serif")
+            .style("font-size", "11px")
+            .style("font-weight", "bold")
+            .style("fill", d => getPointColor(d.id)) // Stesso colore del pallino (Rosso/Blu/Giallo)
+            .style("pointer-events", "none") // Non deve interferire col mouse
+            // "Halo" bianco (bordo) per leggere il testo sopra altri punti scuri
+            .style("text-shadow", "0 1px 0 #fff, 1px 0 0 #fff, 0 -1px 0 #fff, -1px 0 0 #fff")
+            .attr("opacity", 0)
+            .call(enter => enter.transition().duration(300).attr("opacity", 1)),
+        
+        // UPDATE: Muoviti se lo scatterplot cambia (zoom/filtri)
+        update => update
+            .attr("x", d => xScatter(d.x))
+            .attr("y", d => yScatter(d.y) - 15)
+            .style("fill", d => getPointColor(d.id)), // Aggiorna colore se cambia ordine selezione
+            
+        // EXIT: Rimuovi
+        exit => exit.remove()
+    );
 }
 
 // --- FUNZIONI DI COORDINAMENTO (LINKING) ---
 
-function highlightProduct(selectedId) {
-    selectedProductId = selectedId;
-    console.log("🔍 Tentativo di evidenziare ID:", selectedId);
+function toggleProduct(clickedId) {
+    const wasEmpty = state.selectedIds.length === 0;
+    const index = state.selectedIds.indexOf(clickedId);
 
-    // 1. Reset visuale (spegni tutto)
-    // 1. SCATTERPLOT: Reset di TUTTI i cerchi allo stato base
-    svgScatter.select(".dots").selectAll("circle")
-        .attr("fill", "#27ae60")  // Tutti VERDI
-        .attr("opacity", 0.6)     // Opacità standard
-        .attr("r", 5)
-        .attr("stroke", "transparent");
-
-    // 2. Modifica SOLO il cerchio selezionato
-    const circle = svgScatter.select(".dots").selectAll("circle")
-        .filter(d => d.id == selectedId);
-        
-    if (!circle.empty()) {
-        circle.attr("fill", "#e74c3c") // <--- DIVENTA ROSSO
-              .attr("opacity", 1)      // Pienamente visibile
-              .attr("r", 10)           // Più grande
-              .attr("stroke", "#333")  // Bordo nero per contrasto
-              .attr("stroke-width", 2)
-              .raise();                // Porta in primo piano
-    }
-
-    // 3. DISEGNO LINEA ROSSA (PARALLEL COORDINATES)
-    
-    // A) Trova il prodotto nei dati grezzi
-    const product = state.dataRaw.find(p => p.id == selectedId);
-    
-    if (!product) {
-        console.error("❌ ERRORE CRITICO: Prodotto non trovato in state.dataRaw!");
-        return;
-    }
-    console.log("✅ Prodotto trovato:", product.food);
-
-    // B) Generatore di linea "sicuro" (salta i valori mancanti invece di rompersi)
-    const lineGenerator = d3.line()
-        .defined(d => !isNaN(d[1]) && d[1] !== undefined && d[1] !== null) // Regola d'oro
-        .x(d => d[0])
-        .y(d => d[1]);
-
-    // C) Calcola le coordinate una per una (con log per trovare il colpevole)
-    const points = state.features.map(feature => {
-        const xVal = xParallel(feature);
-        const rawVal = product[feature];
-        const yScale = yParallel[feature];
-        
-        // Controllo paranoico
-        if (typeof rawVal === 'undefined' || !yScale) {
-            console.warn(`⚠️ Attributo mancante o scala assente: ${feature}`, rawVal);
-            return [xVal, NaN]; // Questo verrà saltato da .defined()
+    if (index > -1) {
+        // Rimuovi
+        state.selectedIds.splice(index, 1);
+    } else {
+        // Aggiungi (Gestione Coda FIFO di 3 elementi)
+        if (state.selectedIds.length >= 3) {
+            state.selectedIds.shift(); // Via il primo
         }
+        state.selectedIds.push(clickedId);
+    }
+
+    const isEmptyNow = state.selectedIds.length === 0;
+    // 1. Aggiorna Scatterplot (ri-applica stili e colori corretti a tutti)
+    if (wasEmpty !== isEmptyNow) {
+        console.log("🔄 Cambio layout: Ridisegno Parallel Coordinates");
+        setupParallelCoordinates(); // Ricalcola larghezza e assi
+        updateScatterplotVis();     // Aggiorna colori scatter
+    } 
+    // Caso 2: Ho solo aggiunto/tolto un prodotto ma il grafico era già "stretto"
+    // Non serve rifare il setup, basta aggiornare le linee
+    else {
+        updateParallelLines();
+        updateScatterplotVis();
+    }
+}
+
+function updateParallelLines() {
+    // 1. Gestione Sfondo
+    svgParallel.selectAll(".bg-line")
+        .style("opacity", state.selectedIds.length > 0 ? 0.05 : 0.4);
+
+    const highlightLayer = svgParallel.select(".highlight-layer");
+    highlightLayer.html(""); // Reset
+
+    let labelsToDraw = [];
+
+    // 2. CICLO: Disegna Linee e Raccogli Dati Etichette
+    state.selectedIds.forEach((id, index) => {
+        const product = state.dataRaw.find(p => p.id == id);
+        if (!product) return;
+
+        // A. DISEGNO LINEA
+        const lineGenerator = d3.line()
+            .defined(d => !isNaN(d[1]) && d[1] !== undefined)
+            .x(d => d[0]).y(d => d[1]);
+
+        const points = state.features.map(feature => {
+            if (product[feature] === undefined || !yParallel[feature]) return [xParallel(feature), NaN];
+            return [xParallel(feature), yParallel[feature](product[feature])];
+        });
+
+        highlightLayer.append("path")
+            .attr("d", lineGenerator(points))
+            .style("fill", "none")
+            .style("stroke", COMPARE_COLORS[index])
+            .style("stroke-width", 3)
+            .style("opacity", 1)
+            .style("pointer-events", "none");
+
+        // B. RACCOLTA DATI ETICHETTA
+        const firstFeature = state.features[0]; 
+        const firstVal = product[firstFeature];
         
-        return [xVal, yScale(rawVal)];
+        if (firstVal !== undefined && yParallel[firstFeature]) {
+            const yPos = yParallel[firstFeature](firstVal);
+            
+            labelsToDraw.push({
+                text: product.food,
+                y: yPos,          // Posizione corrente (verrà modificata dal sort)
+                originalY: yPos,  // Posizione originale (per la linetta)
+                color: COMPARE_COLORS[index]
+            });
+        }
     });
 
-    const pathData = lineGenerator(points);
+    // 3. COLLISION DETECTION (Sposta giù se si sovrappongono)
+    labelsToDraw.sort((a, b) => a.y - b.y);
+    const labelHeight = 14; 
     
-    // Debug del percorso SVG
-    // console.log("Path Data:", pathData); 
+    labelsToDraw.forEach((d, i) => {
+        if (i > 0) {
+            const prev = labelsToDraw[i - 1];
+            if (d.y < prev.y + labelHeight) {
+                d.y = prev.y + labelHeight; 
+            }
+        }
+    });
 
-    if (!pathData) {
-        console.error("❌ Errore: Path Data è null. Impossibile disegnare la linea.");
-        return;
-    }
+    // 4. DISEGNO EFFETTIVO ETICHETTE
+    // Calcoliamo la X dell'asse zero una volta sola
+    const axisZeroX = xParallel(state.features[0]); 
 
-    // D) Disegna finalmente la linea
-    const highlightLayer = svgParallel.select(".highlight-layer");
-    highlightLayer.html(""); // Pulisci vecchia linea
+    labelsToDraw.forEach(d => {
+        const displayText = d.text.length > 20 ? d.text.substring(0, 18) + "..." : d.text;
+        const g = highlightLayer.append("g");
 
-    highlightLayer.append("path")
-        .attr("d", pathData)
-        .style("fill", "none")
-        .style("stroke", "#e74c3c") // ROSSO ACCESO
-        .style("stroke-width", 2)   // Spessore visibile ma non esagerato
-        .style("opacity", 1)
-        .style("pointer-events", "none"); // Click-through
-        
-    console.log("🖊️ Linea rossa disegnata.");
+        // Stanghetta di raccordo (se spostato > 5px)
+        if (Math.abs(d.y - d.originalY) > 5) {
+            g.append("line")
+                .attr("x1", axisZeroX - 5).attr("y1", d.originalY) // Punto sull'asse
+                .attr("x2", axisZeroX - 10).attr("y2", d.y)        // Punto vicino al testo
+                .style("stroke", d.color)
+                .style("stroke-width", 1)
+                .style("opacity", 0.7);
+        }
+
+        g.append("text")
+            .attr("x", axisZeroX - 15) // <--- FIX: Usiamo la variabile calcolata, non xPos
+            .attr("y", d.y)            // <--- FIX: Usiamo d.y (aggiustato), non yPos
+            .text(displayText)
+            .attr("text-anchor", "end") 
+            .attr("alignment-baseline", "middle")
+            .style("font-size", "11px")
+            .style("font-weight", "bold")
+            .style("fill", d.color)
+            .style("text-shadow", "0 1px 0 #1a1a1a, 1px 0 0 #1a1a1a, 0 -1px 0 #1a1a1a, -1px 0 0 #1a1a1a")
+            .style("opacity", 0)
+            .transition().duration(200)
+            .style("opacity", 1);
+    });
 }
 
 function resetHighlight() {
-    selectedProductId = null; // Dimentica selezione
-
-    // Reset Scatterplot: Tutti Verdi
-    svgScatter.select(".dots").selectAll("circle")
-        .attr("fill", "#27ae60") // Ritorna VERDE
-        .attr("opacity", 0.6)
-        .attr("r", 5)
-        .attr("stroke", "transparent");
-
-    svgParallel.selectAll(".bg-line")
-        .style("stroke", "#bdc3c7")
-        .style("opacity", 0.4);
-
-    // Rimuovi linea evidenziata
-    svgParallel.select(".highlight-layer").html("");
+    // Se c'era qualcosa, dobbiamo riallargare
+    if (state.selectedIds.length > 0) {
+        state.selectedIds = [];
+        
+        // Ridisegna tutto per ripristinare la larghezza piena
+        setupParallelCoordinates(); 
+        updateScatterplotVis();
+        
+    }
 }
 
 // Avvio
