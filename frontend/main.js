@@ -1,7 +1,7 @@
 // Configurazione
 const API_URL = "http://127.0.0.1:5000/api";
 // Margini aumentati in alto per ospitare etichette e slider
-let MARGIN_PARALLEL = { top: 80, right: 30, bottom: 20, left: 40 };
+let MARGIN_PARALLEL = { top: 80, right: 30, bottom: 20, left: 60 };
 const MARGIN_SCATTER = { top: 20, right: 20, bottom: 30, left: 40 };
 
 const COMPARE_COLORS = [
@@ -17,7 +17,8 @@ let state = {
     weights: {},
     projection: [],
     minDominance: 1.0,
-    selectedIds: []
+    selectedIds: [],
+    brushSelections: {}
 };
 
 const labelMap = {
@@ -47,6 +48,9 @@ let scatterContainerSize = { width: 0, height: 0 };
 let tooltip;
 let selectedProductId = null;
 let dominanceMap = new Map(); // Lookup veloce ID -> Share
+let yBrush;
+let scatterBrush;
+
 
 
 // Helper per determinare il colore di un punto
@@ -176,7 +180,7 @@ function getShortLabel(label) {
     return label;
 }
 
-// --- 1. COORDINATE PARALLELE ---
+// ********* 1. COORDINATE PARALLELE **********
 
 function setupParallelCoordinates() {
     const container = d3.select("#parallel-chart");
@@ -193,6 +197,9 @@ function setupParallelCoordinates() {
     svgParallel = container.append("svg")
         .attr("width", width + MARGIN_PARALLEL.left + MARGIN_PARALLEL.right)
         .attr("height", height + MARGIN_PARALLEL.top + MARGIN_PARALLEL.bottom)
+        .on("click", function(event) {
+            resetBrushing();
+        })
         .append("g")
         .attr("transform", `translate(${MARGIN_PARALLEL.left},${MARGIN_PARALLEL.top})`);
 
@@ -216,7 +223,10 @@ function setupParallelCoordinates() {
         .attr("d", d => d3.line()(state.features.map(p => [xParallel(p), yParallel[p](d[p])])))
         .style("fill", "none")
         .style("stroke", "#bdc3c7")
-        .style("opacity", 0.4)
+        .style("opacity", d => {
+            // Usa la stessa logica di updateParallelLines
+            return isProductVisible(d, d.id) ? 0.6 : 0.01; 
+        })
         .style("stroke-width", 1);
 
     svgParallel.append("g").attr("class", "highlight-layer");
@@ -225,9 +235,18 @@ function setupParallelCoordinates() {
     const axes = svgParallel.selectAll(".axis")
         .data(state.features).enter().append("g")
         .attr("class", "axis")
-        .attr("transform", d => `translate(${xParallel(d)})`);
+        .attr("transform", d => `translate(${xParallel(d)})`)
+        .style("opacity", d => 0.2 + (state.weights[d] * 0.8));
 
     axes.each(function(d) { d3.select(this).call(d3.axisLeft(yParallel[d]).ticks(0)); });
+
+    yBrush = d3.brushY()     
+        .extent([[-10, 0], [10, height]])
+        .on("start brush end", brushed);
+
+    axes.append("g")
+        .attr("class", "brush")
+        .call(yBrush);
 
     // --- SLIDER E ETICHETTE ---
     const sliderTop = -50;   
@@ -278,9 +297,251 @@ function setupParallelCoordinates() {
     if (state.selectedIds.length > 0) {
         updateParallelLines();
     }
+    restoreBrushVisuals();
 }
 
-// --- 2. SCATTERPLOT ---
+function updateParallelLines() {
+    // 1. Gestione Sfondo
+    svgParallel.selectAll(".bg-line")
+        // FIX COLORE: Usa sempre un grigio chiaro. 
+        // Prima usavamo #333 che sul nero spariva creando l'effetto "sfocato".
+        .style("stroke", "#bdc3c7") 
+        
+        // FIX OPACITÀ: Gestione netta della visibilità
+        .style("opacity", d => {
+            // A. Se il prodotto è nascosto (Purity o Brush), rendilo quasi invisibile
+            if (!isProductVisible(d, d.id)) return 0.01; 
+
+            // B. Se è visibile:
+            // - Se c'è una selezione attiva (pallini rossi), abbassa lo sfondo (focus context)
+            // - Se NON c'è selezione (reset), alza l'opacità a 0.6 così è ben nitido
+            return state.selectedIds.length > 0 ? 0.15 : 0.6;
+        })
+        // Opzionale: porta in primo piano le linee visibili se necessario, 
+        // ma di solito l'opacità basta.
+        .style("stroke-width", 1);
+
+    const highlightLayer = svgParallel.select(".highlight-layer");
+    highlightLayer.html(""); // Reset
+
+    let labelsToDraw = [];
+
+    // 2. CICLO: Disegna Linee e Raccogli Dati Etichette
+    state.selectedIds.forEach((id, index) => {
+        const product = state.dataRaw.find(p => p.id == id);
+        if (!product) return;
+
+        // A. DISEGNO LINEA
+        const lineGenerator = d3.line()
+            .defined(d => !isNaN(d[1]) && d[1] !== undefined)
+            .x(d => d[0]).y(d => d[1]);
+
+        const points = state.features.map(feature => {
+            if (product[feature] === undefined || !yParallel[feature]) return [xParallel(feature), NaN];
+            return [xParallel(feature), yParallel[feature](product[feature])];
+        });
+
+        highlightLayer.append("path")
+            .attr("d", lineGenerator(points))
+            .style("fill", "none")
+            .style("stroke", COMPARE_COLORS[index])
+            .style("stroke-width", 3)
+            .style("opacity", 1)
+            .style("pointer-events", "none");
+
+        // B. RACCOLTA DATI ETICHETTA
+        const firstFeature = state.features[0]; 
+        const firstVal = product[firstFeature];
+        
+        if (firstVal !== undefined && yParallel[firstFeature]) {
+            const yPos = yParallel[firstFeature](firstVal);
+            
+            labelsToDraw.push({
+                text: product.food,
+                y: yPos,          // Posizione corrente (verrà modificata dal sort)
+                originalY: yPos,  // Posizione originale (per la linetta)
+                color: COMPARE_COLORS[index]
+            });
+        }
+    });
+
+    // 3. COLLISION DETECTION (Sposta giù se si sovrappongono)
+    labelsToDraw.sort((a, b) => a.y - b.y);
+    const labelHeight = 14; 
+    
+    labelsToDraw.forEach((d, i) => {
+        if (i > 0) {
+            const prev = labelsToDraw[i - 1];
+            if (d.y < prev.y + labelHeight) {
+                d.y = prev.y + labelHeight; 
+            }
+        }
+    });
+
+    // 4. DISEGNO EFFETTIVO ETICHETTE
+    // Calcoliamo la X dell'asse zero una volta sola
+    const axisZeroX = xParallel(state.features[0]); 
+
+    labelsToDraw.forEach(d => {
+        const displayText = d.text.length > 20 ? d.text.substring(0, 18) + "..." : d.text;
+        const g = highlightLayer.append("g");
+
+        // Stanghetta di raccordo (se spostato > 5px)
+        if (Math.abs(d.y - d.originalY) > 5) {
+            g.append("line")
+                .attr("x1", axisZeroX - 5).attr("y1", d.originalY) // Punto sull'asse
+                .attr("x2", axisZeroX - 10).attr("y2", d.y)        // Punto vicino al testo
+                .style("stroke", d.color)
+                .style("stroke-width", 1)
+                .style("opacity", 0.7);
+        }
+
+        g.append("text")
+            .attr("x", axisZeroX - 10) // <--- FIX: Usiamo la variabile calcolata, non xPos
+            .attr("y", d.y)            // <--- FIX: Usiamo d.y (aggiustato), non yPos
+            .text(displayText)
+            .attr("text-anchor", "end") 
+            .attr("alignment-baseline", "middle")
+            .style("font-size", "11px")
+            .style("font-weight", "bold")
+            .style("fill", d.color)
+            .style("text-shadow", "0 1px 0 #1a1a1a, 1px 0 0 #1a1a1a, 0 -1px 0 #1a1a1a, -1px 0 0 #1a1a1a")
+            .style("opacity", 0)
+            .transition().duration(200)
+            .style("opacity", 1);
+    });
+}
+
+function brushed(event) {
+    // 1. Identifica quale asse stiamo spazzolando
+    // D3 non ci dà direttamente il nome dell'asse nell'evento, dobbiamo recuperarlo dal DOM
+    // 'this' è il gruppo G del brush. Il genitore è il gruppo dell'asse, che ha il dato associato.
+    if (!event.sourceEvent) return;
+    
+    const feature = d3.select(this.parentNode).datum();
+    
+    // 2. Leggi la selezione (in pixel)
+    const selection = event.selection; // [y0, y1] o null
+
+    if (selection) {
+        // Converti pixel -> valori reali (es. grammi)
+        // Nota: asse Y è invertito (0 in alto = max valore), quindi invertiamo min/max
+        const [y0, y1] = selection;
+        const val1 = yParallel[feature].invert(y0);
+        const val2 = yParallel[feature].invert(y1);
+        
+        // Salva nello stato: [min, max]
+        state.brushSelections[feature] = [Math.min(val1, val2), Math.max(val1, val2)];
+    } else {
+        // Se la selezione è vuota (doppio click per cancellare), rimuovi la chiave
+        delete state.brushSelections[feature];
+    }
+
+    // 3. Aggiorna le viste
+    updateBrushVisuals();
+    if (event.type === 'end') {
+        updateScatterplotVis();
+    }
+}
+
+function updateBrushVisuals() {
+    // A. AGGIORNA SCATTERPLOT
+    // Dobbiamo dire allo scatterplot quali punti sono "attivi" (brushed) e quali no.
+    // Invece di filtrare via i punti (rimuoverli), li rendiamo trasparenti, così si vede il contesto.
+    
+    svgScatter.select(".dots").selectAll("circle")
+        .attr("display", d => {
+            // 1. Check Purity (Fondamentale mantenere coerenza col filtro esistente)
+            const purity = dominanceMap.get(d.id);
+            if (purity < state.minDominance) return "none"; // Nascondi completamente se non passa la purity
+
+            // 2. Check Brushes
+            const product = state.dataRaw.find(p => p.id === d.id);
+            if (!product) return "none";
+
+            const isBrushed = isProductBrushed(product);
+            
+            // Se è spazzolato lo mostriamo, altrimenti "none" (o opacity bassa se preferisci context)
+            // Consiglio: "none" per chiarezza se sono tanti dati, opacity ridotta se sono pochi.
+            // Proviamo con Opacity nel prossimo step, qui usiamo display per performance estrema.
+            return isBrushed ? "block" : "none";
+        });
+
+    // B. AGGIORNA PARALLEL COORDINATES (Linee di Sfondo)
+    // Nascondiamo le linee grigie che non rientrano nella selezione
+    svgParallel.selectAll(".bg-line")
+        .style("stroke", "#bdc3c7")
+        .style("opacity", d => {
+             // Se c'è una selezione specifica (rosso/blu), lo sfondo è quasi invisibile (0.05)
+             // Altrimenti è 0.4.
+             const baseOpacity = state.selectedIds.length > 0 ? 0.15 : 0.6;
+             
+             // Se il prodotto non passa il brush, diventa invisibile
+             return isProductVisible(d, d.id) ? baseOpacity : 0.02; // 0.02 = quasi invisibile ma c'è
+        })
+        // Opzionale: colora di grigio scuro quelle non selezionate per farle sparire nel nero
+        .style("display", d => isProductVisible(d, d.id) ? "block" : "none")
+        .style("stroke-width", 1);
+}
+
+// Ripristina i rettangoli grigi sugli assi basandosi sui dati salvati
+function restoreBrushVisuals() {
+    // Se non ci sono selezioni salvate, non fare nulla
+    if (Object.keys(state.brushSelections).length === 0) return;
+
+    // Cicla su ogni feature che ha un filtro attivo
+    Object.entries(state.brushSelections).forEach(([feature, range]) => {
+        const [min, max] = range;
+        
+        // 1. Converti i valori (es. grammi) in pixel
+        // Nota: l'asse Y è invertito, quindi invertiamo min/max per ottenere y0/y1
+        const y0 = yParallel[feature](max); 
+        const y1 = yParallel[feature](min);
+
+        // 2. Trova il gruppo .brush specifico per questo asse
+        // (Gli assi hanno il dato 'feature' associato al gruppo genitore)
+        const brushGroup = svgParallel.selectAll(".axis")
+            .filter(d => d === feature)
+            .select(".brush");
+
+        // 3. Muovi il brush (senza scatenare eventi infiniti, d3 gestisce questo)
+        if (!brushGroup.empty()) {
+            brushGroup.call(yBrush.move, [y0, y1]);
+        }
+    });
+}
+
+// Helper: Controlla se un prodotto soddisfa TUTTI i filtri attivi
+function isProductBrushed(product) {
+    // Scorre tutte le feature che hanno un filtro attivo
+    const features = Object.keys(state.brushSelections);
+    
+    // Se non ci sono filtri, è "brushed" di default (true)
+    if (features.length === 0) return true;
+
+    // Controlla se soddisfa TUTTI i criteri
+    return features.every(f => {
+        const [min, max] = state.brushSelections[f];
+        const val = product[f];
+        return val >= min && val <= max;
+    });
+}
+
+function isProductVisible(product, id) {
+    if (!product) return false;
+
+    // 1. Controllo Purity (Slider)
+    const share = dominanceMap.get(id);
+    if (share < state.minDominance) return false;
+
+    // 2. Controllo Brushing Parallel Coordinates
+    // (Usa la tua funzione helper esistente isProductBrushed)
+    if (!isProductBrushed(product)) return false;
+
+    return true; // Se passa entrambi, è visibile
+}
+
+// ********** 2. SCATTERPLOT***************
 
 function setupScatterplot() {
     const container = d3.select("#scatter-chart");
@@ -298,12 +559,6 @@ function setupScatterplot() {
     svgScatter = container.append("svg")
         .attr("width", width + MARGIN_SCATTER.left + MARGIN_SCATTER.right)
         .attr("height", height + MARGIN_SCATTER.top + MARGIN_SCATTER.bottom)
-        .on("click", function(event) {
-            // Se clicco sullo sfondo (non su un cerchio), resetto tutto
-            if(event.target.tagName !== "circle") {
-                resetHighlight();
-            }
-        })
         .append("g")
         .attr("transform", `translate(${MARGIN_SCATTER.left},${MARGIN_SCATTER.top})`);
 
@@ -314,6 +569,17 @@ function setupScatterplot() {
     // Assi
     xAxisScatter = svgScatter.append("g").attr("transform", `translate(0, ${height})`);
     yAxisScatter = svgScatter.append("g");
+
+    scatterBrush = d3.brush()
+        .extent([[0, 0], [width, height]]) // Copre tutto il grafico
+        .on("start brush end", brushedScatter); // Chiama la funzione
+
+    // 2. Aggiungi il gruppo Brush (PRIMA dei dots così i dots rimangono cliccabili se necessario, 
+    // ma solitamente il brush deve stare sopra per catturare il drag. 
+    // Mettiamolo SOPRA i dots per permettere la selezione a trascinamento facile).
+    const brushGroup = svgScatter.append("g")
+        .attr("class", "brush-scatter")
+        .call(scatterBrush);
     
     // Gruppo punti
     svgScatter.append("g").attr("class", "dots");
@@ -325,8 +591,18 @@ function updateScatterplotVis() {
 
     // --- 1. FILTRAGGIO DATI (Slider Purity) ---
     const filteredData = state.projection.filter(d => {
+        // 1. Filtro Purity
         const share = dominanceMap.get(d.id);
-        return share >= state.minDominance;
+        if (share < state.minDominance) return false;
+
+        // 2. Filtro Brush (Nuovo!)
+        // Nota: dobbiamo recuperare il dato grezzo per controllare i valori nutrizionali
+        // È costoso farlo qui per 5000 punti. 
+        // TRUCCO: Se non ci sono brush attivi, salta il controllo pesante.
+        if (Object.keys(state.brushSelections).length === 0) return true;
+
+        const product = state.dataRaw.find(p => p.id === d.id);
+        return isProductBrushed(product);
     });
 
     console.log(`📉 Scatterplot: visualizzo ${filteredData.length} punti.`);
@@ -464,7 +740,6 @@ function updateScatterplotVis() {
 // --- FUNZIONI DI COORDINAMENTO (LINKING) ---
 
 function toggleProduct(clickedId) {
-    const wasEmpty = state.selectedIds.length === 0;
     const index = state.selectedIds.indexOf(clickedId);
 
     if (index > -1) {
@@ -478,127 +753,147 @@ function toggleProduct(clickedId) {
         state.selectedIds.push(clickedId);
     }
 
-    const isEmptyNow = state.selectedIds.length === 0;
-    // 1. Aggiorna Scatterplot (ri-applica stili e colori corretti a tutti)
-    if (wasEmpty !== isEmptyNow) {
-        console.log("🔄 Cambio layout: Ridisegno Parallel Coordinates");
-        setupParallelCoordinates(); // Ricalcola larghezza e assi
-        updateScatterplotVis();     // Aggiorna colori scatter
-    } 
-    // Caso 2: Ho solo aggiunto/tolto un prodotto ma il grafico era già "stretto"
-    // Non serve rifare il setup, basta aggiornare le linee
-    else {
-        updateParallelLines();
-        updateScatterplotVis();
-    }
+    updateParallelLines();
+    updateScatterplotVis();
 }
 
-function updateParallelLines() {
-    // 1. Gestione Sfondo
+
+// --- FUNZIONE 1: Resetta SOLO la selezione dei prodotti (Scatter Click) ---
+function resetProductSelection() {
+    console.log("🧹 Reset Selezione Prodotti");
+    
+    // 1. Pulisci array ID
+    state.selectedIds = [];
+
+    if (scatterBrush) {
+        d3.select(".brush-scatter").call(scatterBrush.move, null); // Toglie il rettangolo
+    }
+    svgParallel.select(".ghost-layer").remove(); // Toglie le linee fantasma
+    
+    // 2. Rimuovi classi CSS (es. per animazioni se c'erano)
+    d3.select("#parallel-container").classed("has-selection", false);
+
+    // 3. Aggiorna viste
+    updateScatterplotVis(); // Ridisegna i pallini (tornano verdi/normali)
+    updateParallelLines();  // Cancella le linee colorate
+}
+
+// --- FUNZIONE 2: Resetta SOLO il brushing (Parallel Click) ---
+function resetBrushing() {
+    console.log("🧹 Reset Brushing (Filtri)");
+
+    // 1. Pulisci stato logico
+    state.brushSelections = {};
+
+    // 2. Pulisci visivamente i rettangoli grigi (D3 Brush Reset)
+    // Seleziona tutti i nodi con classe .brush e azzera la selezione
+    if (yBrush) {
+        d3.selectAll(".brush").call(yBrush.move, null);
+    }
+
+    // 3. Aggiorna viste (mostra di nuovo tutte le linee di sfondo e i puntini)
+    updateBrushVisuals();   
+    updateScatterplotVis(); 
+}
+
+function brushedScatter(event) {
+    const selection = event.selection; // [[x0, y0], [x1, y1]]
+
+    // Se non c'è selezione (click a vuoto), pulisci le linee fantasma
+    if (!selection) {
+        svgParallel.select(".ghost-layer").remove();
+
+        if (event.sourceEvent) {
+            console.log("🖱️ Click vuoto su Scatter (Brush): Resetto tutto.");
+            resetProductSelection();
+            return; 
+       }
+
+        svgParallel.selectAll(".bg-line")
+            .style("opacity", d => {
+                if (!isProductVisible(d, d.id)) return 0.02; // Nascosto
+                return state.selectedIds.length > 0 ? 0.15 : 0.6;
+            });
+        return;
+    }
+
+    const [[x0, y0], [x1, y1]] = selection;
+
+    // 1. Trova gli ID dei punti dentro il rettangolo
+    // Usiamo state.projection perché contiene le coordinate x,y attuali
+    const brushedPoints = state.projection.filter(d => {
+        // Scala le coordinate logiche (d.x, d.y) in pixel
+        const product = state.dataRaw.find(p => p.id === d.id);
+        if (!isProductVisible(product, d.id)) return false;
+
+        const px = xScatter(d.x);
+        const py = yScatter(d.y);
+        
+        // Check geometrico
+        return px >= x0 && px <= x1 && py >= y0 && py <= y1;
+    });
+
     svgParallel.selectAll(".bg-line")
-        .style("opacity", state.selectedIds.length > 0 ? 0.05 : 0.4);
+        .style("opacity", d => isProductVisible(d, d.id) ? 0.15 : 0.02);
+    // 2. Disegna queste linee nelle Parallel Coordinates
+    updateGhostLines(brushedPoints);
+}
 
-    const highlightLayer = svgParallel.select(".highlight-layer");
-    highlightLayer.html(""); // Reset
+function updateGhostLines(points) {
+    // Se non ci sono punti, pulisci ed esci
+    if (points.length === 0) {
+        svgParallel.select(".ghost-layer").remove();
+        return;
+    }
 
-    let labelsToDraw = [];
+    // Crea il layer se non esiste. 
+    // TRUCCO: Lo inseriamo PRIMA (.insert) del ".highlight-layer" così le linee rosse stanno sopra.
+    // Se ".highlight-layer" non esiste ancora, lo appenderà alla fine.
+    let ghostLayer = svgParallel.select(".ghost-layer");
+    if (ghostLayer.empty()) {
+        // Cerca highlight-layer per inserirsi sotto
+        if (!svgParallel.select(".highlight-layer").empty()) {
+            ghostLayer = svgParallel.insert("g", ".highlight-layer").attr("class", "ghost-layer");
+        } else {
+            ghostLayer = svgParallel.append("g").attr("class", "ghost-layer");
+        }
+    }
 
-    // 2. CICLO: Disegna Linee e Raccogli Dati Etichette
-    state.selectedIds.forEach((id, index) => {
-        const product = state.dataRaw.find(p => p.id == id);
+    ghostLayer.html(""); // Pulisci le vecchie ghost lines
+
+    // Performance: Se selezioni 1000 punti, disegnarne 1000 è pesante e inutile.
+    // Ne disegniamo massimo 200 a caso per dare l'idea del "fascio".
+    const maxLines = 200;
+    const renderData = points.length > maxLines 
+        ? points.filter(() => Math.random() < (maxLines / points.length)) 
+        : points;
+
+    console.log(`👻 Disegno ${renderData.length} ghost lines.`);
+
+    renderData.forEach(d => {
+        const product = state.dataRaw.find(p => p.id === d.id);
         if (!product) return;
 
-        // A. DISEGNO LINEA
         const lineGenerator = d3.line()
             .defined(d => !isNaN(d[1]) && d[1] !== undefined)
             .x(d => d[0]).y(d => d[1]);
 
-        const points = state.features.map(feature => {
+        const linePoints = state.features.map(feature => {
             if (product[feature] === undefined || !yParallel[feature]) return [xParallel(feature), NaN];
             return [xParallel(feature), yParallel[feature](product[feature])];
         });
 
-        highlightLayer.append("path")
-            .attr("d", lineGenerator(points))
+        ghostLayer.append("path")
+            .attr("d", lineGenerator(linePoints))
             .style("fill", "none")
-            .style("stroke", COMPARE_COLORS[index])
-            .style("stroke-width", 3)
-            .style("opacity", 1)
-            .style("pointer-events", "none");
-
-        // B. RACCOLTA DATI ETICHETTA
-        const firstFeature = state.features[0]; 
-        const firstVal = product[firstFeature];
-        
-        if (firstVal !== undefined && yParallel[firstFeature]) {
-            const yPos = yParallel[firstFeature](firstVal);
-            
-            labelsToDraw.push({
-                text: product.food,
-                y: yPos,          // Posizione corrente (verrà modificata dal sort)
-                originalY: yPos,  // Posizione originale (per la linetta)
-                color: COMPARE_COLORS[index]
-            });
-        }
-    });
-
-    // 3. COLLISION DETECTION (Sposta giù se si sovrappongono)
-    labelsToDraw.sort((a, b) => a.y - b.y);
-    const labelHeight = 14; 
-    
-    labelsToDraw.forEach((d, i) => {
-        if (i > 0) {
-            const prev = labelsToDraw[i - 1];
-            if (d.y < prev.y + labelHeight) {
-                d.y = prev.y + labelHeight; 
-            }
-        }
-    });
-
-    // 4. DISEGNO EFFETTIVO ETICHETTE
-    // Calcoliamo la X dell'asse zero una volta sola
-    const axisZeroX = xParallel(state.features[0]); 
-
-    labelsToDraw.forEach(d => {
-        const displayText = d.text.length > 20 ? d.text.substring(0, 18) + "..." : d.text;
-        const g = highlightLayer.append("g");
-
-        // Stanghetta di raccordo (se spostato > 5px)
-        if (Math.abs(d.y - d.originalY) > 5) {
-            g.append("line")
-                .attr("x1", axisZeroX - 5).attr("y1", d.originalY) // Punto sull'asse
-                .attr("x2", axisZeroX - 10).attr("y2", d.y)        // Punto vicino al testo
-                .style("stroke", d.color)
-                .style("stroke-width", 1)
-                .style("opacity", 0.7);
-        }
-
-        g.append("text")
-            .attr("x", axisZeroX - 15) // <--- FIX: Usiamo la variabile calcolata, non xPos
-            .attr("y", d.y)            // <--- FIX: Usiamo d.y (aggiustato), non yPos
-            .text(displayText)
-            .attr("text-anchor", "end") 
-            .attr("alignment-baseline", "middle")
-            .style("font-size", "11px")
-            .style("font-weight", "bold")
-            .style("fill", d.color)
-            .style("text-shadow", "0 1px 0 #1a1a1a, 1px 0 0 #1a1a1a, 0 -1px 0 #1a1a1a, -1px 0 0 #1a1a1a")
+            .style("stroke", "#00e676") // Bianco/Grigio chiaro
+            .style("stroke-width", 1.5)
+            .style("opacity", 0.4) // Molto trasparente (effetto fumo)
+            .style("pointer-events", "none")
             .style("opacity", 0)
             .transition().duration(200)
-            .style("opacity", 1);
+            .style("opacity", 0.4);
     });
-}
-
-function resetHighlight() {
-    // Se c'era qualcosa, dobbiamo riallargare
-    if (state.selectedIds.length > 0) {
-        state.selectedIds = [];
-        
-        // Ridisegna tutto per ripristinare la larghezza piena
-        setupParallelCoordinates(); 
-        updateScatterplotVis();
-        
-    }
 }
 
 // Avvio
