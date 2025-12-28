@@ -95,6 +95,7 @@ async function init() {
             dominanceMap.set(d.id, +d.dominant_share || 0);
         });
         setupDominanceFilter();
+        setupSearch();
 
         console.log(`✅ Metadati: ${state.features.length} features.`);
 
@@ -135,6 +136,7 @@ function setupDominanceFilter() {
 
         // Aggiorna grafico
         updateScatterplotVis();
+        updateBrushVisuals();
     });
 }
 
@@ -417,7 +419,7 @@ function brushed(event) {
     // D3 non ci dà direttamente il nome dell'asse nell'evento, dobbiamo recuperarlo dal DOM
     // 'this' è il gruppo G del brush. Il genitore è il gruppo dell'asse, che ha il dato associato.
     if (!event.sourceEvent) return;
-    
+
     const feature = d3.select(this.parentNode).datum();
     
     // 2. Leggi la selezione (in pixel)
@@ -893,6 +895,65 @@ function updateGhostLines(points) {
             .style("opacity", 0)
             .transition().duration(200)
             .style("opacity", 0.4);
+    });
+}
+
+function setupSearch() {
+    console.log("🔍 Attivazione Ricerca Contestuale (Max 5)...");
+    
+    const searchInput = d3.select("#product-search");
+    const dataList = d3.select("#food-list");
+
+    // (Nota: Non serve più calcolare uniqueFoods all'inizio, 
+    // perché la lista dei 'visibili' cambia dinamicamente)
+
+    searchInput.on("input", function() {
+        const val = this.value.toLowerCase().trim();
+        
+        dataList.html(""); // Pulisci suggerimenti
+
+        if (val.length < 1) return;
+
+        // --- FILTRAGGIO AVANZATO ---
+        // Cerchiamo solo tra i prodotti che:
+        // 1. Contengono il testo scritto
+        // 2. Sono attualmente VISIBILI (rispettano Purity e Brushing)
+        
+        const matches = state.dataRaw
+            .filter(d => {
+                // A. Check Nome
+                if (!d.food.toLowerCase().includes(val)) return false;
+
+                // B. Check Visibilità (Purity + Brush)
+                // Se il prodotto è nascosto, lo ignoriamo dalla ricerca
+                return isProductVisible(d, d.id);
+            })
+            .map(d => d.food) // Prendiamo solo i nomi
+            // C. Rimuoviamo duplicati (se presenti)
+            .filter((v, i, a) => a.indexOf(v) === i)
+            // D. Ordiniamo e tagliamo
+            .sort((a, b) => a.localeCompare(b))
+            .slice(0, 5);
+
+        // Popola il datalist
+        matches.forEach(match => {
+            dataList.append("option").attr("value", match);
+        });
+    });
+
+    // L'evento 'change' rimane identico a prima
+    searchInput.on("change", function() {
+        const val = this.value;
+        const found = state.dataRaw.find(d => d.food === val);
+        
+        if (found) {
+            console.log("🎯 Selezionato:", found.food);
+            if (!state.selectedIds.includes(found.id)) {
+                toggleProduct(found.id); 
+            }
+            this.value = ""; 
+            this.blur();
+        }
     });
 }
 

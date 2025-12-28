@@ -11,36 +11,49 @@
     <div id="app-container">
         
         <header>
-            <h1>🥑 NutriAnalytics <span style="font-weight:300">| Preference Explorer</span></h1>
-            <div class="stats" id="variance-info">Variance Explained: <span>...</span></div>
+            <div class="header-left">
+                <h1>🥑 NutriAnalytics <span style="font-weight:300">| Preference Explorer</span></h1>
+            </div>
+
+            <div class="header-controls">
+                
+                <div class="control-group search-group">
+                    <span class="search-icon">🔍</span>
+                    <input type="text" id="product-search" placeholder="Cerca un cibo..." list="food-list">
+                    <datalist id="food-list"></datalist>
+                </div>
+
+                <div class="sep"></div>
+
+                <div class="control-group slider-group">
+                    <label for="dominance-slider">Purity: <span id="dominance-val">Pure Only</span></label>
+                    <input type="range" id="dominance-slider" min="0.3" max="1" step="0.1" value="1">
+                </div>
+            </div>
+
+            <div class="header-right">
+                <div class="stats" id="variance-info">Variance Explained: <span>...</span></div>
+            </div>
         </header>
 
         <div id="parallel-container" class="panel">
             <h2>1. Preference Tuner (Drag sliders to adjust weights)</h2>
             <div id="parallel-chart" class="chart-wrapper"></div>
-            <div id="parallel-legend"></div>
         </div>
 
         <div id="scatter-container" class="panel">
-            <div id="scatter-header">
-                <h2>2. Similarity Landscape</h2>
-                
-                <div id="scatter-controls">
-                    <label for="dominance-slider">Purity:</label>
-                    <input type="range" id="dominance-slider" min="0.3" max="1.0" step="0.1" value="1.0">
-                    <span id="dominance-val">Pure Only</span>
-                </div>
-            </div>
-            
+            <h2>2. Similarity Landscape</h2>
             <div id="scatter-chart" class="chart-wrapper"></div>
         </div>
 
         <div id="detail-container" class="panel">
             <h2>3. Product Details & Trade-offs</h2>
-            <div id="detail-content">
-                <p style="color:#999; text-align:center; margin-top:20%">
-                    Passa il mouse su un prodotto per vedere i dettagli.
-                </p>
+            <div id="details-container">
+                <div id="detail-content">
+                    <p style="color:#999; text-align:center; margin-top:20%">
+                        Passa il mouse su un prodotto o usa la ricerca per vedere i dettagli.
+                    </p>
+                </div>
             </div>
         </div>
 

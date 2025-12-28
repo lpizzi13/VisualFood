@@ -1,11 +1,12 @@
 :root {
     /* --- PALETTE DARK MODE --- */
-    --bg-color: #1a1a1a;       /* Sfondo pagina: Grigio quasi nero */
-    --panel-bg: #252525;       /* Sfondo pannelli: Grigio scuro */
-    --header-bg: #2c3e50;      /* Header: Blu notte */
-    --accent: #3498db;         /* Accento: Azzurro */
-    --text-main: #ecf0f1;      /* Testo: Bianco sporco (riposante) */
-    --border-color: #333;      /* Bordi sottili */
+    --bg-color: #1a1a1a;       /* Sfondo pagina */
+    --panel-bg: #252525;       /* Sfondo pannelli */
+    --header-bg: #2c3e50;      /* Header */
+    --accent: #3498db;         /* Accento blu */
+    --green-accent: #00e676;   /* Accento verde (Purity/Search) */
+    --text-main: #ecf0f1;      /* Testo principale */
+    --border-color: #333;      /* Bordi */
     --border-radius: 8px;
 }
 
@@ -22,31 +23,116 @@ body, html {
     overflow: hidden; 
 }
 
-/* Layout a Griglia */
+/* --- LAYOUT GRID --- */
 #app-container {
     display: grid;
     height: 100vh;
-    grid-template-rows: 50px 0.6fr 1.4fr; 
+    /* Header (60px) | Parallel (40%) | Scatter/Details (Resto) */
+    grid-template-rows: 60px 0.4fr 1fr; 
     grid-template-columns: 1fr 1fr;
     gap: 10px;
     padding: 10px;
 }
 
+/* --- HEADER & TOOLBAR LAYOUT --- */
 header {
     grid-column: 1 / -1;
     background-color: var(--header-bg);
     color: white;
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: space-between; /* Titolo a sx, Controlli centro, Stats dx */
     padding: 0 20px;
     border-radius: var(--border-radius);
-    box-shadow: 0 4px 6px rgba(0,0,0,0.3); /* Ombra più forte per il dark mode */
+    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    border-bottom: 1px solid #34495e;
 }
 
-header h1 { margin: 0; font-size: 1.2rem; }
-header .stats { font-size: 0.9rem; color: #bdc3c7; }
+/* 1. Titolo */
+.header-left h1 {
+    margin: 0;
+    font-size: 1.3rem;
+    white-space: nowrap;
+}
 
+/* 2. Controlli Centrali */
+.header-controls {
+    display: flex;
+    align-items: center;
+    gap: 25px; /* Spazio tra Search e Slider */
+    background: rgba(0,0,0,0.2); /* Leggero sfondo per raggrupparli */
+    padding: 5px 20px;
+    border-radius: 30px;
+    border: 1px solid #34495e;
+}
+
+.control-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* Stile Input Ricerca */
+#product-search {
+    background: #1a1a1a;
+    border: 1px solid #555;
+    color: #fff;
+    padding: 5px 12px;
+    border-radius: 15px;
+    font-size: 0.9rem;
+    width: 200px;
+    outline: none;
+    transition: all 0.2s ease;
+}
+
+#product-search:focus {
+    border-color: var(--green-accent);
+    width: 240px; /* Si allarga al focus */
+    box-shadow: 0 0 5px rgba(0, 230, 118, 0.3);
+}
+
+.search-icon { font-size: 1rem; opacity: 0.7; }
+
+/* Separatore verticale */
+.sep {
+    width: 1px;
+    height: 20px;
+    background-color: #555;
+}
+
+/* Slider Purity nell'Header */
+.slider-group label {
+    font-size: 0.9rem;
+    color: #bdc3c7;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+#dominance-val {
+    color: var(--green-accent);
+    font-weight: bold;
+    min-width: 40px;
+    display: inline-block;
+}
+
+#dominance-slider {
+    width: 120px;
+    cursor: pointer;
+    accent-color: var(--green-accent);
+    height: 4px;
+    margin-bottom: 2px;
+}
+
+/* 3. Statistiche */
+.stats { 
+    font-size: 0.9rem; 
+    color: #bdc3c7; 
+    font-weight: 500;
+}
+.stats span { color: var(--green-accent); font-weight: bold; }
+
+
+/* --- PANNELLI --- */
 .panel {
     background: var(--panel-bg);
     border-radius: var(--border-radius);
@@ -56,20 +142,20 @@ header .stats { font-size: 0.9rem; color: #bdc3c7; }
     overflow: hidden;
     position: relative;
     box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-    border: 1px solid var(--border-color); /* Bordo sottile per definizione */
+    border: 1px solid var(--border-color);
 }
 
 .panel h2 {
-    margin: 0 0 5px 0;
-    font-size: 0.9rem;
-    color: #bdc3c7; /* Titoli grigio chiaro */
+    margin: 0 0 10px 0;
+    font-size: 0.95rem;
+    color: #bdc3c7;
     text-transform: uppercase;
-    border-bottom: 1px solid #444; /* Linea separatrice più scura */
+    border-bottom: 1px solid #444;
     padding-bottom: 5px;
     flex-shrink: 0; 
 }
 
-/* Contenitori per i grafici */
+/* --- GRAFICI --- */
 .chart-wrapper {
     flex-grow: 1;
     width: 100%;
@@ -78,155 +164,46 @@ header .stats { font-size: 0.9rem; color: #bdc3c7; }
     min-height: 0; 
 }
 
-/* --- FIX FONDAMENTALE PER GRAFICI D3 IN DARK MODE --- */
-/* Rende bianchi gli assi e le linee che di default sono neri */
-.domain, .tick line {
-    stroke: #7f8c8d !important;
-}
-.tick text {
-    fill: #bdc3c7 !important;
-}
-
-/* Posizionamento Griglia */
 #parallel-container { grid-column: 1 / -1; grid-row: 2 / 3; }
 #scatter-container { grid-column: 1 / 2; grid-row: 3 / 4; }
 #detail-container { grid-column: 2 / 3; grid-row: 3 / 4; }
-#parallel-chart {
-    width: 100%;
-    height: 100%;
-    /* Nessun transform o transition complesso qui */
-}
 
-/* Stile del Tooltip (Dark) */
+/* --- FIX GRAFICI D3 DARK MODE --- */
+.domain, .tick line { stroke: #7f8c8d !important; }
+.tick text { fill: #bdc3c7 !important; }
+
+/* --- TOOLTIP --- */
 .d3-tooltip {
     position: absolute;
-    background-color: rgba(0, 0, 0, 0.95); /* Nero profondo */
+    background-color: rgba(0, 0, 0, 0.95);
     color: white;
     padding: 12px;
     border-radius: 6px;
     font-size: 0.85rem;
     pointer-events: none;
     box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-    border: 1px solid #444; /* Bordo sottile */
+    border: 1px solid #555;
     z-index: 1000;
     visibility: hidden;
     max-width: 250px;
-    transform: translate(-50%, -100%);
 }
 
-.d3-tooltip h4 {
-    margin: 0 0 5px 0;
-    font-size: 1rem;
-    color: #3498db; 
-    border-bottom: 1px solid #555;
-    padding-bottom: 3px;
+/* --- TABELLA DETTAGLI (Pannello 3) --- */
+.comparison-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+    font-size: 0.9rem;
 }
 
-.d3-tooltip p {
-    margin: 2px 0;
-    font-size: 0.8rem;
-    color: #ddd;
+.comparison-table th, .comparison-table td {
+    padding: 8px;
+    text-align: center;
+    border-bottom: 1px solid #444;
 }
 
-/* --- CONTROLLI SCATTERPLOT (Adattati al Dark Mode) --- */
-
-#scatter-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border-bottom: 1px solid #444; /* Linea scura */
-    padding-bottom: 8px;
-    margin-bottom: 10px;
-    gap: 10px;
-    flex-wrap: wrap;
+.comparison-table th:first-child, 
+.comparison-table td:first-child {
+    text-align: left;
+    color: #bdc3c7;
 }
-
-/* Contenitore slider: Sfondo scuro (#333) invece che chiaro */
-#scatter-controls {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-size: 0.85rem;
-    background: #333; /* Sfondo scuro per il box controlli */
-    padding: 5px 15px;
-    border-radius: 20px;
-    
-    /* RESPONSIVITÀ */
-    flex-grow: 1;
-    max-width: 350px;
-    min-width: 200px;
-}
-
-/* Label bianca */
-#scatter-controls label {
-    font-weight: 600;
-    color: var(--text-main);
-    white-space: nowrap;
-}
-
-/* INPUT SLIDER: Design Viola su sfondo scuro */
-#dominance-slider {
-    -webkit-appearance: none;
-    flex-grow: 1;
-    width: auto;
-    min-width: 50px;
-    margin: 0 10px;
-    height: 6px;
-    background: #555; /* Barra grigio medio (più scura) */
-    border-radius: 3px;
-    outline: none;
-}
-
-/* Manico (Thumb) - Chrome/Safari */
-#dominance-slider::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%; 
-    background: #8e44ad;      /* VIOLA */
-    cursor: pointer;
-    border: 2px solid #fff;   /* Bordo bianco per contrasto */
-    box-shadow: 0 1px 3px rgba(0,0,0,0.5);
-    margin-top: -6px;
-    transition: transform 0.1s ease;
-}
-
-#dominance-slider::-webkit-slider-thumb:active {
-    transform: scale(1.2);
-    background: #9b59b6; /* Viola leggermente più chiaro al click */
-}
-
-/* Manico (Thumb) - Firefox */
-#dominance-slider::-moz-range-thumb {
-    width: 18px;
-    height: 18px;
-    border: 2px solid #fff;
-    border-radius: 50%;
-    background: #8e44ad;
-    cursor: pointer;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.5);
-}
-
-/* Testo valore (Viola) */
-#dominance-val {
-    color: #8e44ad;
-    font-weight: bold;
-    white-space: nowrap;
-    min-width: 70px;
-    text-align: right;
-}
-
-/* MOBILE FIX */
-@media (max-width: 600px) {
-    #scatter-header {
-        flex-direction: column;
-        align-items: flex-start;
-    }
-    #scatter-controls {
-        width: 100%;
-        max-width: none;
-    }
-}
-
-
