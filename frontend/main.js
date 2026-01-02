@@ -84,12 +84,40 @@ async function init() {
         const metaRes = await fetch(`${API_URL}/metadata`);
         const metadata = await metaRes.json();
         
-        state.features = metadata.features;
         state.dataRaw = metadata.data;
+        let rawFeatures = metadata.features;
         
+        const logicalOrder = [
+            // --- ENERGIA & MACRO PRINCIPALI ---
+            "Caloric Value", 
+            "Total Fat", 
+            "Saturated Fats", 
+            "Cholesterol",
+            
+            // --- CARBOIDRATI ---
+            "Carbohydrates", 
+            "Sugars", 
+            "Dietary Fiber",
+            
+            // --- COSTRUTTORI ---
+            "Protein",
+            
+            // --- SALUTE & IDRATAZIONE ---
+            "Sodium", 
+            "Water",
+            
+            // --- MICRONUTRIENTI (Vitamine & Minerali) ---
+            "Vitamin C", 
+            "Potassium", 
+            "Iron", 
+            "Calcium", 
+            "Magnesium"
+        ];
+        
+        state.features = logicalOrder.filter(f => rawFeatures.includes(f));
         // Inizializza pesi a 1.0
         state.features.forEach(f => state.weights[f] = 1.0);
-
+        
         // Associa ID -> dominant_share per accesso O(1)
         state.dataRaw.forEach(d => {
             dominanceMap.set(d.id, +d.dominant_share || 0);
@@ -420,6 +448,17 @@ function brushed(event) {
     // 'this' è il gruppo G del brush. Il genitore è il gruppo dell'asse, che ha il dato associato.
     if (!event.sourceEvent) return;
 
+    const scatterBrushGroup = d3.select(".brush-scatter");
+    
+    // Controlliamo se esiste un brush attivo
+    if (scatterBrushGroup.node() && d3.brushSelection(scatterBrushGroup.node())) {
+        // Questo comando fa due cose:
+        // 1. Rimuove visivamente il rettangolo grigio.
+        // 2. Scatena l'evento "end" su brushedScatter con selezione null, 
+        //    che a sua volta pulirà le linee verdi (ghost lines).
+        scatterBrushGroup.call(scatterBrush.move, null);
+    }
+
     const feature = d3.select(this.parentNode).datum();
     
     // 2. Leggi la selezione (in pixel)
@@ -665,20 +704,28 @@ function updateScatterplotVis() {
         const product = state.dataRaw.find(p => p.id === d.id);
         if (product) {
             tooltip.html(`
-                <h4>${product.food}</h4>
-                <div style="font-size:11px; color:#aaa; margin-bottom:5px">Purity: ${Math.round(product.dominant_share*100)}%</div>
-                <p>🔥 ${Math.round(product["Caloric Value"])} Kcal</p>
-            `);
-            tooltip.style("visibility", "visible");
+            <div style="font-weight:bold; font-size:13px; margin-bottom:2px;">${product.food}</div>
+            <div style="font-size:11px; color:#ddd;">
+                <span>💧 ${Math.round(product.dominant_share*100)}% Pure</span>
+                <span style="margin-left:8px; opacity:0.7;">|</span>
+                <span style="margin-left:8px;">🔥 ${Math.round(product["Caloric Value"])} kcal</span>
+            </div>
+        `)
+        .style("padding", "8px 12px") // Meno padding
+        .style("visibility", "visible");
         }
 
         // B. EVIDENZIAZIONE VISIVA (PREVIEW)
         // Se il punto NON è già selezionato, facciamolo "brillare" per far capire che è cliccabile
         if (!state.selectedIds.includes(d.id)) {
             d3.select(this)
-                .attr("r", 8)
-                .attr("opacity", 1)
-                .attr("fill", "#8e44ad"); // Ciano (Colore di anteprima/hover)
+            .attr("r", 12) // Ingrandiamo bene
+            .attr("opacity", 1)
+            .attr("stroke", "#fff") 
+            .attr("stroke-width", 2)
+            .raise();
+
+            showPreviewLine(product);
         }
     })
     .on("mousemove", function(event) {
@@ -686,7 +733,7 @@ function updateScatterplotVis() {
     })
     .on("mouseout", function(event, d) {
         tooltip.style("visibility", "hidden");
-        
+        hidePreviewLine();
         // C. RIPRISTINO STATO CORRETTO
         // Quando il mouse esce, il punto deve tornare esattamente come deve essere
         // secondo la logica della selezione globale.
@@ -694,10 +741,12 @@ function updateScatterplotVis() {
             .attr("r", getPointRadius(d.id))
             .attr("fill", getPointColor(d.id))
             .attr("opacity", getPointOpacity(d.id))
-            .attr("stroke", getPointStroke(d.id));
+            .attr("stroke", getPointStroke(d.id))
+            .attr("stroke-width", state.selectedIds.includes(d.id) ? 2 : 0);
     })
     .on("click", function(event, d) {
         event.stopPropagation();
+        hidePreviewLine();
         toggleProduct(d.id);
     });
 
@@ -851,11 +900,10 @@ function updateGhostLines(points) {
     }
 
     // Crea il layer se non esiste. 
-    // TRUCCO: Lo inseriamo PRIMA (.insert) del ".highlight-layer" così le linee rosse stanno sopra.
-    // Se ".highlight-layer" non esiste ancora, lo appenderà alla fine.
     let ghostLayer = svgParallel.select(".ghost-layer");
     if (ghostLayer.empty()) {
-        // Cerca highlight-layer per inserirsi sotto
+        // Cerca highlight-layer per inserirsi sotto le linee di selezione (rosso/blu)
+        // ma sopra lo sfondo grigio.
         if (!svgParallel.select(".highlight-layer").empty()) {
             ghostLayer = svgParallel.insert("g", ".highlight-layer").attr("class", "ghost-layer");
         } else {
@@ -865,14 +913,13 @@ function updateGhostLines(points) {
 
     ghostLayer.html(""); // Pulisci le vecchie ghost lines
 
-    // Performance: Se selezioni 1000 punti, disegnarne 1000 è pesante e inutile.
-    // Ne disegniamo massimo 200 a caso per dare l'idea del "fascio".
-    const maxLines = 200;
+    // Performance: Limitiamo a 150 linee per evitare che il "glow" blocchi il browser
+    const maxLines = 150;
     const renderData = points.length > maxLines 
         ? points.filter(() => Math.random() < (maxLines / points.length)) 
         : points;
 
-    console.log(`👻 Disegno ${renderData.length} ghost lines.`);
+    console.log(`👻 Disegno ${renderData.length} ghost lines (Stile Neon).`);
 
     renderData.forEach(d => {
         const product = state.dataRaw.find(p => p.id === d.id);
@@ -890,13 +937,17 @@ function updateGhostLines(points) {
         ghostLayer.append("path")
             .attr("d", lineGenerator(linePoints))
             .style("fill", "none")
-            .style("stroke", "#00e676") // Bianco/Grigio chiaro
-            .style("stroke-width", 1.5)
-            .style("opacity", 0.4) // Molto trasparente (effetto fumo)
+            
+            // --- STILE NEON (Modificato per essere identico all'Hover) ---
+            .style("stroke", "#00e676") // Verde Fluo
+            .style("stroke-width", 2)    // Spessore aumentato (era 1.5)
+            .style("filter", "drop-shadow(0 0 5px #00e676)") // EFFETTO GLOW
             .style("pointer-events", "none")
+            
+            // Animazione entrata
             .style("opacity", 0)
             .transition().duration(200)
-            .style("opacity", 0.4);
+            .style("opacity", 0.8); // Molto più visibile (era 0.4)
     });
 }
 
@@ -1093,6 +1144,46 @@ function updateDetailPanel() {
                 .style("width", `${percent}%`);
         });
     });
+}
+
+// --- HOVER EFFECT HELPERS ---
+
+// Disegna una linea temporanea "Ghost" nelle coordinate parallele
+function showPreviewLine(product) {
+    if (!product || !xParallel || !yParallel) return;
+
+    // Crea un layer temporaneo se non esiste
+    let previewLayer = svgParallel.select(".preview-layer");
+    if (previewLayer.empty()) {
+        // .raise() assicura che sia SOPRA a tutto
+        previewLayer = svgParallel.append("g").attr("class", "preview-layer").raise(); 
+    }
+
+    const lineGenerator = d3.line()
+        .defined(d => !isNaN(d[1]) && d[1] !== undefined)
+        .x(d => d[0]).y(d => d[1]);
+
+    // Costruisci i punti
+    const points = state.features.map(feature => {
+        if (product[feature] === undefined || !yParallel[feature]) return [xParallel(feature), NaN];
+        return [xParallel(feature), yParallel[feature](product[feature])];
+    });
+
+    // Disegna la linea
+    previewLayer.append("path")
+        .attr("class", "preview-line")
+        .attr("d", lineGenerator(points))
+        .style("fill", "none")
+        .style("stroke", "#00e676") // VERDE FLUO
+        .style("stroke-width", 3)
+        .style("stroke-opacity", 1)
+        .style("filter", "drop-shadow(0 0 5px #00e676)") // Effetto Glow
+        .style("pointer-events", "none"); 
+}
+
+// Rimuove la linea temporanea
+function hidePreviewLine() {
+    svgParallel.selectAll(".preview-layer").remove();
 }
 
 // Avvio
