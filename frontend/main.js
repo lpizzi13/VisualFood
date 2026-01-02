@@ -757,6 +757,7 @@ function toggleProduct(clickedId) {
 
     updateParallelLines();
     updateScatterplotVis();
+    updateDetailPanel();
 }
 
 
@@ -778,6 +779,7 @@ function resetProductSelection() {
     // 3. Aggiorna viste
     updateScatterplotVis(); // Ridisegna i pallini (tornano verdi/normali)
     updateParallelLines();  // Cancella le linee colorate
+    updateDetailPanel(); // pulisci il pannello dei dettagli
 }
 
 // --- FUNZIONE 2: Resetta SOLO il brushing (Parallel Click) ---
@@ -954,6 +956,142 @@ function setupSearch() {
             this.value = ""; 
             this.blur();
         }
+    });
+}
+
+function updateDetailPanel() {
+    console.log("⚡ Aggiornamento Pannello (Clean Semantic Fixed)...");
+
+    const container = d3.select("#details-container");
+    container.html(""); // Reset
+
+    // CONFIGURAZIONE SEMANTICA
+    const nutrientGoals = {
+        "Caloric Value":    { type: "neutral",  icon: "●" },
+        "Dietary Fiber":    { type: "positive", icon: "▲" },
+        "Potassium":        { type: "positive", icon: "▲" },
+        "Carbohydrates":    { type: "neutral",  icon: "●" },
+        "Water":            { type: "positive", icon: "▲" },
+        "Iron":             { type: "positive", icon: "▲" },
+        "Total Fat":        { type: "neutral",  icon: "●" },
+        "Magnesium":        { type: "positive", icon: "▲" },
+        "Calcium":          { type: "positive", icon: "▲" },
+        "Protein":          { type: "positive", icon: "▲" },
+        "Vitamin C":        { type: "positive", icon: "▲" },
+        "Sugars":           { type: "negative", icon: "▼" },
+        "Sodium":           { type: "negative", icon: "▼" },
+        "Saturated Fats":   { type: "negative", icon: "▼" },
+        "Cholesterol":      { type: "negative", icon: "▼" }
+    };
+
+    // 1. STATO VUOTO
+    if (state.selectedIds.length === 0) {
+        container.html(`
+            <div style="height:100%; display:flex; flex-direction:column; justify-content:center; align-items:center; color:#777; text-align:center;">
+                <div style="font-size:2rem; margin-bottom:10px;">📊</div>
+                <p>Select up to 3 products<br>for direct comparison.</p>
+            </div>
+        `);
+        return;
+    }
+
+    const products = state.selectedIds.map(id => state.dataRaw.find(p => p.id === id));
+
+    // FIX FONDAMENTALE: Attiva la logica "Vincitore" SOLO se stiamo confrontando 2 o più cose.
+    const enableComparison = products.length > 1;
+
+    // 2. INTESTAZIONE
+    const header = container.append("div")
+        .style("display", "grid")
+        .style("grid-template-columns", `repeat(${products.length}, 1fr)`)
+        .style("gap", "10px")
+        .style("margin-bottom", "15px")
+        .style("padding-bottom", "10px")
+        .style("border-bottom", "1px solid #444");
+    
+    products.forEach((p, i) => {
+        const displayName = p.food.length > 40 ? p.food.substring(0,38)+".." : p.food;
+        header.append("div")
+            .style("color", COMPARE_COLORS[i])
+            .style("font-weight", "bold")
+            .style("font-size", "0.85rem")
+            .style("line-height", "1.2")
+            .style("word-wrap", "break-word")
+            .text(displayName);
+    });
+
+    // 3. GRIGLIA
+    const grid = container.append("div").attr("class", "details-grid");
+
+    const displayFeatures = [
+        "Caloric Value","Magnesium", "Vitamin C", "Carbohydrates", "Potassium", "Sugars", "Total Fat", "Iron", "Saturated Fats",
+        "Protein","Calcium","Sodium","Dietary Fiber", "Water","Cholesterol"
+    ];
+
+    displayFeatures.forEach(feat => {
+        if (!products.some(p => p[feat] !== undefined)) return;
+
+        const config = nutrientGoals[feat] || { type: "neutral", icon: "" };
+
+        let maxVal = d3.max(products, p => +p[feat] || 0);
+        if (maxVal <= 0) maxVal = 1; 
+
+        // Crea Card
+        const card = grid.append("div")
+            .attr("class", `nutrient-item ${config.type}`); // positive/negative/neutral
+        
+        const shortName = (typeof getShortLabel === "function") ? getShortLabel(feat) : feat;
+        const titleLine = card.append("div").attr("class", "detail-label");
+        titleLine.append("span").text(shortName);
+        titleLine.append("span")
+            .attr("class", `trend-icon ${config.type === 'positive' ? 'pos' : (config.type === 'negative' ? 'neg' : 'neu')}`)
+            .text(config.icon);
+
+        // --- CALCOLO VINCITORE ---
+        let bestValue = null;
+
+        if (enableComparison) {
+            const validValues = products.map(p => +p[feat] || 0);
+            
+            if (config.type === "positive") {
+                bestValue = d3.max(validValues);
+            } else if (config.type === "negative") {
+                bestValue = d3.min(validValues);
+            }
+            // Neutral: bestValue rimane null, nessuno vince.
+        }
+
+        // Disegna Barre
+        products.forEach((p, i) => {
+            const rawVal = +p[feat] || 0;
+            const displayVal = +rawVal.toFixed(2); 
+            const percent = (rawVal / maxVal) * 100;
+            
+            let isWinner = false;
+            // Se il confronto è attivo E il valore corrisponde al migliore
+            if (enableComparison && bestValue !== null && rawVal === bestValue) {
+                isWinner = true;
+            }
+
+            const row = card.append("div").attr("class", "bar-container");
+
+            const label = row.append("div").attr("class", "bar-label")
+                .style("color", COMPARE_COLORS[i])
+                .text(displayVal);
+            
+            // Stile Vincitore (Semplice Grassetto/Sottolineato)
+            if (isWinner) {
+                label.style("font-weight", "900")
+                     .style("text-decoration", "underline");
+            }
+
+            const track = row.append("div").attr("class", "bar-track");
+            
+            track.append("div")
+                .attr("class", `bar-fill ${isWinner ? 'winner' : ''}`)
+                .style("background-color", COMPARE_COLORS[i])
+                .style("width", `${percent}%`);
+        });
     });
 }
 

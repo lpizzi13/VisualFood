@@ -28,7 +28,7 @@ body, html {
     display: grid;
     height: 100vh;
     /* Header (60px) | Parallel (40%) | Scatter/Details (Resto) */
-    grid-template-rows: 60px 0.4fr 1fr; 
+    grid-template-rows: auto 0.6fr 1.4fr; 
     grid-template-columns: 1fr 1fr;
     gap: 10px;
     padding: 10px;
@@ -46,6 +46,10 @@ header {
     border-radius: var(--border-radius);
     box-shadow: 0 4px 6px rgba(0,0,0,0.3);
     border-bottom: 1px solid #34495e;
+    min-height: 60px; 
+    flex-wrap: wrap; /* Permette agli elementi di andare a capo su mobile */
+    gap: 10px; /* Spazio verticale quando vanno a capo */
+    overflow: visible;
 }
 
 /* 1. Titolo */
@@ -64,6 +68,7 @@ header {
     padding: 5px 20px;
     border-radius: 30px;
     border: 1px solid #34495e;
+    flex-shrink: 0;
 }
 
 .control-group {
@@ -131,7 +136,56 @@ header {
 }
 .stats span { color: var(--green-accent); font-weight: bold; }
 
+@media (max-width: 900px) {
+    .header-left h1 span {
+        display: none; /* Nasconde "| Preference Explorer" */
+    }
+    .header-controls {
+        gap: 10px;
+    }
+    #product-search { width: 150px; }
+    #product-search:focus { width: 180px; }
+}
 
+/* MOBILE (Sotto 650px): Impila tutto verticalmente */
+@media (max-width: 650px) {
+    header {
+        flex-direction: column; /* Impila verticalmente */
+        align-items: center;    /* Centra tutto */
+        padding: 15px;
+    }
+
+    .header-left {
+        width: 100%;
+        text-align: center;
+        margin-bottom: 5px;
+    }
+    
+    .header-controls {
+        width: 100%;
+        flex-direction: column;
+        gap: 12px;
+        order: 2; /* Metti i controlli al centro */
+    }
+
+    /* Input e Slider larghi al 100% per facilità d'uso */
+    #product-search, 
+    .slider-group,
+    #dominance-slider {
+        width: 100%; 
+    }
+    
+    .header-right {
+        width: 100%;
+        text-align: center;
+        order: 3; /* Variance Explained va in fondo */
+        margin-top: 5px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(255,255,255,0.1); /* Lineetta separatrice carina */
+    }
+    
+    .sep { display: none; }
+}
 /* --- PANNELLI --- */
 .panel {
     background: var(--panel-bg);
@@ -206,4 +260,155 @@ header {
 .comparison-table td:first-child {
     text-align: left;
     color: #bdc3c7;
+}
+
+/* --- PANNELLO DETTAGLI (Ultra-Compact Grid) --- */
+
+#details-container {
+    width: 100%;
+    height: 100%;
+    overflow-y: auto; /* Scroll solo se strettamente necessario */
+    overflow-x: hidden;
+    padding: 5px; /* Meno padding esterno */
+}
+
+/* GRIGLIA: 3 Colonne per sfruttare la larghezza */
+.details-grid {
+    display: grid;
+    /* 3 colonne di larghezza uguale */
+    grid-template-columns: repeat(3, 1fr); 
+    gap: 8px; 
+}
+
+/* Card del singolo nutriente */
+.nutrient-item {
+    background: rgba(255,255,255,0.03);
+    padding: 5px 8px; /* Padding interno ridotto al minimo */
+    border-radius: 4px;
+    border: 1px solid #333;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+/* Titolo Nutriente (es. PROTEIN) */
+.detail-label {
+    font-size: 0.7rem; /* Testo più piccolo */
+    color: #7f8c8d;
+    margin-bottom: 3px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid #444;
+    padding-bottom: 1px;
+    white-space: nowrap;      /* Evita a capo */
+    overflow: hidden;         /* Taglia se troppo lungo */
+    text-overflow: ellipsis;
+}
+
+/* Riga Barra + Numero */
+.bar-container {
+    display: flex;
+    align-items: center;
+    margin-bottom: 2px; /* Spazio tra le barrette quasi nullo */
+    height: 12px;       /* Altezza riga ridotta */
+    font-size: 0.7rem;
+}
+
+/* Numero (es. 12.5) */
+.bar-label {
+    width: 30px; /* Spazio numero ridotto */
+    text-align: right;
+    margin-right: 5px;
+    font-weight: bold;
+    flex-shrink: 0;
+    line-height: 12px;
+}
+
+/* Traccia Barra */
+.bar-track {
+    flex-grow: 1;
+    background: rgba(0,0,0,0.4);
+    height: 5px; /* Barra molto sottile */
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 1px; /* Centratura ottica */
+}
+
+.bar-fill {
+    height: 100%;
+    border-radius: 2px;
+}
+
+/* --- MEDIA QUERY --- */
+/* Su schermi molto piccoli torna a 2 colonne per leggibilità */
+@media (max-width: 1100px) {
+    .details-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+@media (max-width: 600px) {
+    .details-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* --- SEMANTIC NUTRIENTS STYLES (CLEAN VERSION) --- */
+
+/* Card Nutriente */
+.nutrient-item {
+    background: rgba(255,255,255,0.03);
+    padding: 6px 8px;
+    border-radius: 4px;
+    border: 1px solid #333;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    border-left-width: 3px; /* Predispone il bordo colorato */
+    border-left-style: solid;
+}
+
+/* Colori semantici per il bordo sinistro */
+.nutrient-item.positive { border-left-color: #00e676; } /* Verde */
+.nutrient-item.negative { border-left-color: #e74c3c; } /* Rosso/Arancio */
+.nutrient-item.neutral  { border-left-color: #7f8c8d; } /* Grigio */
+
+/* Titolo e Icona */
+.detail-label {
+    font-size: 0.75rem;
+    color: #bdc3c7;
+    margin-bottom: 4px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid #444;
+    padding-bottom: 2px;
+    display: flex;
+    justify-content: space-between;
+}
+
+/* Icone direzionali (▲ ▼) */
+.trend-icon { font-size: 0.8rem; font-weight: normal; }
+.trend-icon.pos { color: #00e676; }
+.trend-icon.neg { color: #e74c3c; }
+.trend-icon.neu { color: #555; }
+
+/* Barre */
+.bar-track {
+    background: rgba(0,0,0,0.4);
+    height: 6px;
+    border-radius: 3px;
+    margin-top: 1px;
+}
+
+.bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    opacity: 0.6; /* Default leggermente trasparente */
+    transition: width 0.5s ease;
+}
+
+/* Vincitore: Opaco e brillante */
+.bar-fill.winner {
+    opacity: 1; 
 }
