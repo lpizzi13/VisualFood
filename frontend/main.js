@@ -41,6 +41,45 @@ const labelMap = {
     "Vitamin C": "Vit C"           // Rame
 };
 
+// Aggiungi all'inizio di main.js
+const GOOD_NUTRIENTS = [
+    "Protein", 
+    "Dietary Fiber", 
+    "Vitamin C", 
+    "Potassium", 
+    "Iron", 
+    "Calcium", 
+    "Magnesium", 
+    "Water"
+];
+
+const BAD_NUTRIENTS = [
+    "Sugars", 
+    "Saturated Fats", 
+    "Cholesterol", 
+    "Sodium"
+];
+
+// --- MAPPA UNITÀ DI MISURA ---
+const UNIT_MAP = {
+    "Caloric Value": "kcal",
+    "Total Fat": "g",
+    "Saturated Fats": "g",
+    "Carbohydrates": "g",
+    "Sugars": "g",
+    "Dietary Fiber": "g",
+    "Protein": "g",
+    "Cholesterol": "mg",
+    "Sodium": "mg",
+    "Water": "g",
+    "Vitamin C": "mg",
+    "Potassium": "mg",
+    "Iron": "mg",
+    "Calcium": "mg",
+    "Magnesium": "mg"
+};
+// Tutto il resto (Zuccheri, Grassi, Sodio, Colesterolo) sarà considerato "Da limitare" (Rosso)
+
 // Variabili D3 Globali
 let svgParallel, xParallel, yParallel = {};
 let svgScatter, xScatter, yScatter, xAxisScatter, yAxisScatter;
@@ -143,7 +182,7 @@ async function init() {
 
         tooltip = d3.select("body").append("div")
         .attr("class", "d3-tooltip");
-
+        updateDetailPanel()
     } catch (e) {
         console.error("Errore init:", e);
     }
@@ -165,6 +204,7 @@ function setupDominanceFilter() {
         // Aggiorna grafico
         updateScatterplotVis();
         updateBrushVisuals();
+        updateDetailPanel();
     });
 }
 
@@ -482,6 +522,7 @@ function brushed(event) {
     updateBrushVisuals();
     if (event.type === 'end') {
         updateScatterplotVis();
+        updateDetailPanel();
     }
 }
 
@@ -523,6 +564,8 @@ function updateBrushVisuals() {
         // Opzionale: colora di grigio scuro quelle non selezionate per farle sparire nel nero
         .style("display", d => isProductVisible(d, d.id) ? "block" : "none")
         .style("stroke-width", 1);
+
+    updateDetailPanel()
 }
 
 // Ripristina i rettangoli grigi sugli assi basandosi sui dati salvati
@@ -773,7 +816,7 @@ function updateScatterplotVis() {
             .style("fill", d => getPointColor(d.id)) // Stesso colore del pallino (Rosso/Blu/Giallo)
             .style("pointer-events", "none") // Non deve interferire col mouse
             // "Halo" bianco (bordo) per leggere il testo sopra altri punti scuri
-            .style("text-shadow", "0 1px 0 #fff, 1px 0 0 #fff, 0 -1px 0 #fff, -1px 0 0 #fff")
+            .style("text-shadow", "0px 2px 4px rgba(0,0,0,0.9)")
             .attr("opacity", 0)
             .call(enter => enter.transition().duration(300).attr("opacity", 1)),
         
@@ -1011,137 +1054,182 @@ function setupSearch() {
 }
 
 function updateDetailPanel() {
-    console.log("⚡ Aggiornamento Pannello (Clean Semantic Fixed)...");
-
     const container = d3.select("#details-container");
-    container.html(""); // Reset
+    container.html(""); // Pulisci tutto
 
-    // CONFIGURAZIONE SEMANTICA
-    const nutrientGoals = {
-        "Caloric Value":    { type: "neutral",  icon: "●" },
-        "Dietary Fiber":    { type: "positive", icon: "▲" },
-        "Potassium":        { type: "positive", icon: "▲" },
-        "Carbohydrates":    { type: "neutral",  icon: "●" },
-        "Water":            { type: "positive", icon: "▲" },
-        "Iron":             { type: "positive", icon: "▲" },
-        "Total Fat":        { type: "neutral",  icon: "●" },
-        "Magnesium":        { type: "positive", icon: "▲" },
-        "Calcium":          { type: "positive", icon: "▲" },
-        "Protein":          { type: "positive", icon: "▲" },
-        "Vitamin C":        { type: "positive", icon: "▲" },
-        "Sugars":           { type: "negative", icon: "▼" },
-        "Sodium":           { type: "negative", icon: "▼" },
-        "Saturated Fats":   { type: "negative", icon: "▼" },
-        "Cholesterol":      { type: "negative", icon: "▼" }
-    };
-
-    // 1. STATO VUOTO
+    // --- 1. STATO VUOTO (CONTEGGIO DINAMICO) ---
     if (state.selectedIds.length === 0) {
+        // Usa la funzione helper isProductVisible se presente, altrimenti filtra inline
+        const visibleCount = state.dataRaw.filter(d => isProductVisible(d,d.id)).length;
+
         container.html(`
-            <div style="height:100%; display:flex; flex-direction:column; justify-content:center; align-items:center; color:#777; text-align:center;">
-                <div style="font-size:2rem; margin-bottom:10px;">📊</div>
-                <p>Select up to 3 products<br>for direct comparison.</p>
+            <div style="height:100%; display:flex; flex-direction:column; justify-content:center; align-items:center; color:#777; text-align:center; opacity:0.8;">
+                <div style="font-size:3rem; margin-bottom:10px; filter:grayscale(1);">🔍</div>
+                <h3 style="color:#bdc3c7; margin:0 0 5px 0;">Select products to compare</h3>
+                <p style="font-size:0.9rem; color:#7f8c8d;">
+                    Currently showing <b style="color:#00e676">${visibleCount}</b> items.<br>
+                    Click on scatterplot dots to visualize details.
+                </p>
             </div>
         `);
         return;
     }
 
-    const products = state.selectedIds.map(id => state.dataRaw.find(p => p.id === id));
+    const products = state.selectedIds.map(id => state.dataRaw.find(p => p.id == id));
 
-    // FIX FONDAMENTALE: Attiva la logica "Vincitore" SOLO se stiamo confrontando 2 o più cose.
-    const enableComparison = products.length > 1;
-
-    // 2. INTESTAZIONE
+    // --- 2. HEADER (NOME + CATEGORIA) ---
     const header = container.append("div")
         .style("display", "grid")
-        .style("grid-template-columns", `repeat(${products.length}, 1fr)`)
-        .style("gap", "10px")
-        .style("margin-bottom", "15px")
-        .style("padding-bottom", "10px")
-        .style("border-bottom", "1px solid #444");
-    
+        .style("grid-template-columns", `90px repeat(${products.length}, 1fr)`)
+        .style("gap", "8px")
+        .style("margin-bottom", "15px") // Un po' più spazio prima della lista
+        .style("border-bottom", "1px solid #444")
+        .style("padding-bottom", "10px");
+
+    header.append("div"); // Cella vuota angolo
+
     products.forEach((p, i) => {
-        const displayName = p.food.length > 40 ? p.food.substring(0,38)+".." : p.food;
+        const displayName =  p.food;
+        const displayCategory = p.category;
+
         header.append("div")
-            .style("color", COMPARE_COLORS[i])
-            .style("font-weight", "bold")
-            .style("font-size", "0.85rem")
-            .style("line-height", "1.2")
-            .style("word-wrap", "break-word")
-            .text(displayName);
+            .style("text-align", "center")
+            .style("cursor", "crosshair")
+            .html(`
+                <div style="color:${COMPARE_COLORS[i]}; font-weight:bold; font-size:1rem; line-height:1.2;">
+                    ${displayName}
+                </div>
+                <div style="color:#888; font-size:0.8rem; font-style:italic; margin-top:3px; line-height:1.1;">
+                    ${displayCategory}
+                </div>
+            `)
+            .on("mouseover", function() {
+                d3.select(this).select("div").style("text-decoration", "underline");
+                svgScatter.selectAll("circle").filter(d => d.id == p.id)
+                    .attr("r", 20).attr("stroke", "#fff").attr("stroke-width", 3).raise();
+            })
+            .on("mouseout", function() {
+                d3.select(this).select("div").style("text-decoration", "none");
+                svgScatter.selectAll("circle").filter(d => d.id == p.id)
+                    .attr("r", getPointRadius(p.id)).attr("stroke", getPointStroke(p.id)).attr("stroke-width", 2);
+            });
     });
 
-    // 3. GRIGLIA
-    const grid = container.append("div").attr("class", "details-grid");
+    // --- 3. LISTA NUTRIENTI (ORDINE PERSONALIZZATO) ---
+    // Definiamo manualmente l'ordine richiesto SOLO per questo pannello
+    const customOrder = [
+        // A. ENERGIA & MACRO BASE
+        "Caloric Value",
+        "Carbohydrates",
+        "Total Fat",
+        
+        // B. PROTEINE (Ponte verso i buoni)
+        "Protein",
+        
+        // C. NUTRIENTI BUONI (Vitamine, Minerali, Fibre, Acqua)
+        "Dietary Fiber",
+        "Vitamin C",
+        "Potassium",
+        "Iron",
+        "Calcium",
+        "Magnesium",
+        "Water",
 
-    const displayFeatures = [
-        "Caloric Value","Magnesium", "Vitamin C", "Carbohydrates", "Potassium", "Sugars", "Total Fat", "Iron", "Saturated Fats",
-        "Protein","Calcium","Sodium","Dietary Fiber", "Water","Cholesterol"
+        // D. NUTRIENTI "CATTIVI" (In fondo)
+        "Sugars",
+        "Saturated Fats",
+        "Cholesterol",
+        "Sodium"
     ];
 
-    displayFeatures.forEach(feat => {
-        if (!products.some(p => p[feat] !== undefined)) return;
+    // Filtriamo per essere sicuri che esistano nel dataset corrente (state.features o labelMap)
+    // Nota: "Caloric Value" a volte non è in state.features se usato solo per le coordinate, ma qui lo vogliamo.
+    const featuresToShow = customOrder.filter(f => state.features.includes(f) || f === "Caloric Value");
 
-        const config = nutrientGoals[feat] || { type: "neutral", icon: "" };
+    featuresToShow.forEach(feature => {
+        // Logica Colore (Tri-State)
+        let type = "neutral";
+        if (GOOD_NUTRIENTS.includes(feature)) type = "good";
+        else if (BAD_NUTRIENTS.includes(feature)) type = "bad";
 
-        let maxVal = d3.max(products, p => +p[feat] || 0);
-        if (maxVal <= 0) maxVal = 1; 
-
-        // Crea Card
-        const card = grid.append("div")
-            .attr("class", `nutrient-item ${config.type}`); // positive/negative/neutral
-        
-        const shortName = (typeof getShortLabel === "function") ? getShortLabel(feat) : feat;
-        const titleLine = card.append("div").attr("class", "detail-label");
-        titleLine.append("span").text(shortName);
-        titleLine.append("span")
-            .attr("class", `trend-icon ${config.type === 'positive' ? 'pos' : (config.type === 'negative' ? 'neg' : 'neu')}`)
-            .text(config.icon);
-
-        // --- CALCOLO VINCITORE ---
-        let bestValue = null;
-
-        if (enableComparison) {
-            const validValues = products.map(p => +p[feat] || 0);
-            
-            if (config.type === "positive") {
-                bestValue = d3.max(validValues);
-            } else if (config.type === "negative") {
-                bestValue = d3.min(validValues);
-            }
-            // Neutral: bestValue rimane null, nessuno vince.
+        let barColor, winnerColor, icon;
+        if (type === "good") {
+            barColor = "rgba(0, 230, 118, 0.3)"; // Verde
+            winnerColor = "#00e676";
+            icon = "▲";
+        } else if (type === "bad") {
+            barColor = "rgba(255, 82, 82, 0.3)"; // Rosso
+            winnerColor = "#00e676";
+            icon = "▼"; 
+        } else {
+            // Neutro (Blu) per Calorie, Grassi Totali, Carbo
+            barColor = "rgba(52, 152, 219, 0.3)"; 
+            winnerColor = "#3498db"; 
+            icon = ""; 
         }
 
-        // Disegna Barre
-        products.forEach((p, i) => {
-            const rawVal = +p[feat] || 0;
-            const displayVal = +rawVal.toFixed(2); 
-            const percent = (rawVal / maxVal) * 100;
-            
-            let isWinner = false;
-            // Se il confronto è attivo E il valore corrisponde al migliore
-            if (enableComparison && bestValue !== null && rawVal === bestValue) {
-                isWinner = true;
-            }
+        const unit = UNIT_MAP[feature] || "";
 
-            const row = card.append("div").attr("class", "bar-container");
+        const row = container.append("div")
+            .style("display", "grid")
+            .style("grid-template-columns", `90px repeat(${products.length}, 1fr)`)
+            .style("gap", "8px")
+            .style("margin-bottom", "6px")
+            .style("align-items", "center");
 
-            const label = row.append("div").attr("class", "bar-label")
-                .style("color", COMPARE_COLORS[i])
-                .text(displayVal);
-            
-            // Stile Vincitore (Semplice Grassetto/Sottolineato)
-            if (isWinner) {
-                label.style("font-weight", "900")
-                     .style("text-decoration", "underline");
-            }
+        // Etichetta
+        row.append("div")
+            .text(feature)
+            .style("font-size", "0.7rem")
+            .style("color", "#888")
+            .style("text-align", "right")
+            .style("padding-right", "10px")
+            .style("white-space", "nowrap")
+            .style("overflow", "hidden")
+            .style("text-overflow", "ellipsis");
 
-            const track = row.append("div").attr("class", "bar-track");
+        // Calcolo Max Locale
+        const localValues = products.map(p => p[feature] || 0);
+        const maxLocal = Math.max(...localValues);
+
+        products.forEach((p) => {
+            const val = p[feature] || 0;
+            const barWidthPercent = maxLocal > 0 ? (val / maxLocal) * 100 : 0;
             
-            track.append("div")
-                .attr("class", `bar-fill ${isWinner ? 'winner' : ''}`)
-                .style("background-color", COMPARE_COLORS[i])
-                .style("width", `${percent}%`);
+            const cell = row.append("div")
+                .style("position", "relative") 
+                .style("height", "20px")
+                .style("background", "#1a1a1a")
+                .style("border-radius", "3px")
+                .style("overflow", "hidden");
+
+            // Barra
+            cell.append("div")
+                .style("position", "absolute")
+                .style("top", "0").style("left", "0").style("bottom", "0")
+                .style("width", `${barWidthPercent}%`)
+                .style("background", barColor)
+                .style("transition", "width 0.5s ease-out");
+
+            // Highlight Logica
+            let isHighlight = false;
+            if (type === "good") isHighlight = (val === maxLocal && val > 0);
+            else if (type === "bad") isHighlight = (val === Math.min(...localValues) && val < maxLocal);
+            else isHighlight = (val === maxLocal && val > 0); // Neutro: evidenzia il più alto
+            const unitStyle = isHighlight ? "opacity:1; font-weight:normal;" : "opacity:0.9;";
+            // Testo
+            cell.append("div")
+                .style("position", "absolute")
+                .style("width", "100%").style("height", "100%")
+                .style("display", "flex").style("align-items", "center").style("padding-left", "6px")
+                .style("font-size", "0.7rem")
+                .style("color", isHighlight ? "#fff" : "#bbb")
+                .style("font-weight", isHighlight ? "bold" : "normal")
+                .style("text-shadow", "0 1px 2px #000")
+                .html(`
+                    ${Math.round(val*10)/10}<span style="font-size:0.85em; margin-left:1px; ${unitStyle}">${unit}</span>
+                    ${(isHighlight && type !== "neutral") ? '<span style="color:'+winnerColor+'">'+icon+'</span>' : ''}
+                `);
         });
     });
 }

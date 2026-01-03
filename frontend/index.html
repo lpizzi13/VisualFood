@@ -2,7 +2,7 @@
 <html lang="it">
 <head>
     <meta charset="UTF-8">
-    <title>NutriAnalytics Pro</title>
+    <title>VisualFood</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://d3js.org/d3.v7.min.js"></script>
 </head>
@@ -12,7 +12,7 @@
         
         <header>
             <div class="header-left">
-                <h1>🥑 NutriAnalytics <span style="font-weight:300">| Preference Explorer</span></h1>
+                <h1>🥑 VisualFood <span style="font-weight:300">| Preference Explorer</span></h1>
             </div>
 
             <div class="header-controls">
@@ -49,9 +49,13 @@
         <div id="detail-container" class="panel">
             <h2>3. Product Details & Trade-offs</h2>
             <div id="details-container">
-                <div style="height:100%; display:flex; flex-direction:column; justify-content:center; align-items:center; color:#777; text-align:center;">
-                    <div style="font-size:2rem; margin-bottom:10px;">📊</div>
-                    <p>Select up to 3 products<br>for direct comparison.</p>
+                <div style="height:100%; display:flex; flex-direction:column; justify-content:center; align-items:center; color:#777; text-align:center; opacity:0.8;">
+                    <div style="font-size:3rem; margin-bottom:10px; filter:grayscale(1);">🔍</div>
+                    <h3 style="color:#bdc3c7; margin:0 0 5px 0;">Select products to compare</h3>
+                    <p style="font-size:0.9rem; color:#7f8c8d;">
+                        Currently showing <b style="color:#00e676">...</b> items.<br>
+                        Click on scatterplot dots to visualize details.
+                    </p>
                 </div>
             </div>
         </div>
