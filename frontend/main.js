@@ -117,6 +117,55 @@ function getPointStroke(id) {
     return state.selectedIds.includes(id) ? "#333" : "transparent";
 }
 
+function getMacroCategory(originalCategory) {
+    if (!originalCategory) return "Prepared/Other";
+    const c = originalCategory.toLowerCase();
+  
+    // 1) Fats & oils (very specific, override)
+    if (
+      c.includes("oil") || c.includes("butter") || c.includes("lard") ||
+      c.includes("margarine") || c.includes("shortening") ||
+      c.includes("mayonnaise") || c.includes("dressing")
+    ) return "Fats & Oils";
+  
+    // 2) Dairy
+    if (
+      c.includes("milk") || c.includes("cheese") || c.includes("yogurt") ||
+      c.includes("cream") || c.includes("dairy")
+    ) return "Dairy & Cheese";
+  
+    // 3) Animal protein
+    if (
+      c.includes("beef") || c.includes("pork") || c.includes("chicken") ||
+      c.includes("turkey") || c.includes("meat") || c.includes("sausage") ||
+      c.includes("fish") || c.includes("seafood") || c.includes("egg") ||
+      c.includes("poultry") || c.includes("lamb") || c.includes("bacon") ||
+      c.includes("ham") || c.includes("shrimp") || c.includes("tuna") ||
+      c.includes("salmon") || c.includes("frankfurter")
+    ) return "Animal Protein";
+  
+    // 4) Sweets & snacks
+    if (
+      c.includes("candy") || c.includes("chocolate") || c.includes("cookie") ||
+      c.includes("cake") || c.includes("pie") || c.includes("dessert") ||
+      c.includes("ice cream") || c.includes("doughnut") || c.includes("pastry") ||
+      c.includes("cracker") || c.includes("chips") || c.includes("snack") ||
+      c.includes("sugar") || c.includes("honey") || c.includes("jam") ||
+      c.includes("sweet")
+    ) return "Sweets & Snacks";
+  
+    // 5) Plant-based staples + produce
+    if (
+      c.includes("fruit") || c.includes("vegetab") || c.includes("bean") ||
+      c.includes("legume") || c.includes("nut") || c.includes("seed") ||
+      c.includes("grain") || c.includes("cereal") || c.includes("rice") ||
+      c.includes("pasta") || c.includes("bread") || c.includes("potato") ||
+      c.includes("tofu") || c.includes("soy")
+    ) return "Plant-based";
+  
+    return "Prepared/Other";
+  }
+
 async function init() {
     console.log("🚀 Avvio applicazione...");
     try {
@@ -129,28 +178,20 @@ async function init() {
         const logicalOrder = [
             // --- ENERGIA & MACRO PRINCIPALI ---
             "Caloric Value", 
+            "Water",
             "Total Fat", 
             "Saturated Fats", 
             "Cholesterol",
-            
-            // --- CARBOIDRATI ---
             "Carbohydrates", 
             "Sugars", 
             "Dietary Fiber",
-            
-            // --- COSTRUTTORI ---
             "Protein",
-            
-            // --- SALUTE & IDRATAZIONE ---
             "Sodium", 
-            "Water",
-            
-            // --- MICRONUTRIENTI (Vitamine & Minerali) ---
-            "Vitamin C", 
             "Potassium", 
-            "Iron", 
             "Calcium", 
-            "Magnesium"
+            "Magnesium",
+            "Iron", 
+            "Vitamin C"
         ];
         
         state.features = logicalOrder.filter(f => rawFeatures.includes(f));
@@ -1057,11 +1098,17 @@ function updateDetailPanel() {
     const container = d3.select("#details-container");
     container.html(""); // Pulisci tutto
 
-    // --- 1. STATO VUOTO (CONTEGGIO DINAMICO) ---
+    // --- 0. IMPOSTA IL LAYOUT FLEXBOX DEL CONTENITORE ---
+    // Questo assicura che il pannello occupi il 100% e gestisca lo scroll internamente
+    container
+        .style("display", "flex")
+        .style("flex-direction", "column")
+        .style("height", "100%")
+        .style("overflow", "hidden"); // Nasconde lo scroll del container principale
+    
+    // --- 1. STATO VUOTO ---
     if (state.selectedIds.length === 0) {
-        // Usa la funzione helper isProductVisible se presente, altrimenti filtra inline
         const visibleCount = state.dataRaw.filter(d => isProductVisible(d,d.id)).length;
-
         container.html(`
             <div style="height:100%; display:flex; flex-direction:column; justify-content:center; align-items:center; color:#777; text-align:center; opacity:0.8;">
                 <div style="font-size:3rem; margin-bottom:10px; filter:grayscale(1);">🔍</div>
@@ -1076,30 +1123,36 @@ function updateDetailPanel() {
     }
 
     const products = state.selectedIds.map(id => state.dataRaw.find(p => p.id == id));
+    const labelCol = "clamp(70px, 16vw, 110px)";
+    const productCol = "minmax(120px, 1fr)";
 
-    // --- 2. HEADER (NOME + CATEGORIA) ---
+    // --- 2. HEADER FISSO (Non scrolla) ---
     const header = container.append("div")
+        .style("flex", "0 0 auto") // Non si schiaccia, ma il contenuto ora è più piccolo
         .style("display", "grid")
-        .style("grid-template-columns", `90px repeat(${products.length}, 1fr)`)
-        .style("gap", "8px")
-        .style("margin-bottom", "15px") // Un po' più spazio prima della lista
+        .style("grid-template-columns", `${labelCol} repeat(${products.length}, ${productCol})`)
+        .style("gap", "6px")
+        // PADDING DINAMICO: 0.5% dell'altezza schermo, ma min 4px max 10px
+        .style("padding-bottom", "clamp(4px, 1vh, 10px)")
+        .style("margin-bottom", "4px")
         .style("border-bottom", "1px solid #444")
-        .style("padding-bottom", "10px");
+        .style("background", "var(--panel-bg)") 
+        .style("z-index", "10");
 
-    header.append("div"); // Cella vuota angolo
+    header.append("div"); // Cella vuota
 
     products.forEach((p, i) => {
-        const displayName =  p.food;
+        const displayName = p.food.length > 45 ? p.food.substring(0,40)+".." : p.food;
         const displayCategory = p.category;
 
         header.append("div")
             .style("text-align", "center")
             .style("cursor", "crosshair")
             .html(`
-                <div style="color:${COMPARE_COLORS[i]}; font-weight:bold; font-size:1rem; line-height:1.2;">
+                <div style="color:${COMPARE_COLORS[i]}; font-weight:bold; font-size:clamp(10px, 1.8vh, 13px); line-height:1.2;">
                     ${displayName}
                 </div>
-                <div style="color:#888; font-size:0.8rem; font-style:italic; margin-top:3px; line-height:1.1;">
+                <div style="color:#888; font-size:clamp(9px, 1.4vh, 11px); font-style:italic; margin-top:2px; line-height:1.1;">
                     ${displayCategory}
                 </div>
             `)
@@ -1115,54 +1168,67 @@ function updateDetailPanel() {
             });
     });
 
-    // --- 3. LISTA NUTRIENTI (ORDINE PERSONALIZZATO) ---
-    // Definiamo manualmente l'ordine richiesto SOLO per questo pannello
-    const customOrder = [
-        // A. ENERGIA & MACRO BASE
-        "Caloric Value",
-        "Carbohydrates",
-        "Total Fat",
-        
-        // B. PROTEINE (Ponte verso i buoni)
-        "Protein",
-        
-        // C. NUTRIENTI BUONI (Vitamine, Minerali, Fibre, Acqua)
-        "Dietary Fiber",
-        "Vitamin C",
-        "Potassium",
-        "Iron",
-        "Calcium",
-        "Magnesium",
-        "Water",
+    // --- 3. CONTAINER SCROLLABILE (Contiene la lista) ---
+    const scrollableBody = container.append("div")
+        .attr("id", "details-body")
+        .style("flex", "1 1 auto")
+        .style("min-height", "0")          // <-- IMPORTANTISSIMO in flex layouts
+        .style("display", "flex")
+        .style("flex-direction", "column")
+        .style("gap", "4px")
+        .style("padding-right", "4px")
+        .style("overflow-y", "hidden");
 
-        // D. NUTRIENTI "CATTIVI" (In fondo)
-        "Sugars",
-        "Saturated Fats",
-        "Cholesterol",
-        "Sodium"
+        function computeRowHeight() {
+            const N = featuresToShow.length;          // es. 15
+            const gapPx = 4;                          // deve combaciare con .style("gap", "4px")
+            const minRowPx = 16;                      // minimo leggibile (tuning)
+            
+            const bodyNode = scrollableBody.node();
+            const bodyH = bodyNode.getBoundingClientRect().height;
+          
+            // spazio occupato dai gap tra righe
+            const totalGaps = (N - 1) * gapPx;
+          
+            // altezza ideale per riga per occupare esattamente 1/N
+            const h = (bodyH - totalGaps) / N;
+          
+            // fallback: se troppo piccolo, attiva scroll e usa minRowPx
+            if (h < minRowPx) {
+              scrollableBody.style("overflow-y", "auto");
+              return minRowPx;
+            } else {
+              scrollableBody.style("overflow-y", "hidden");
+              return h;
+            }
+          }
+
+    // --- 4. LISTA NUTRIENTI (Inserita nel body scrollabile) ---
+    const customOrder = [
+        "Caloric Value", "Carbohydrates", "Total Fat",
+        "Protein",
+        "Dietary Fiber", "Vitamin C", "Potassium", "Iron", "Calcium", "Magnesium", "Water",
+        "Sugars", "Saturated Fats", "Cholesterol", "Sodium"
     ];
 
-    // Filtriamo per essere sicuri che esistano nel dataset corrente (state.features o labelMap)
-    // Nota: "Caloric Value" a volte non è in state.features se usato solo per le coordinate, ma qui lo vogliamo.
     const featuresToShow = customOrder.filter(f => state.features.includes(f) || f === "Caloric Value");
+    const rowH = computeRowHeight();
 
     featuresToShow.forEach(feature => {
-        // Logica Colore (Tri-State)
         let type = "neutral";
         if (GOOD_NUTRIENTS.includes(feature)) type = "good";
         else if (BAD_NUTRIENTS.includes(feature)) type = "bad";
 
         let barColor, winnerColor, icon;
         if (type === "good") {
-            barColor = "rgba(0, 230, 118, 0.3)"; // Verde
+            barColor = "rgba(0, 230, 118, 0.3)"; 
             winnerColor = "#00e676";
             icon = "▲";
         } else if (type === "bad") {
-            barColor = "rgba(255, 82, 82, 0.3)"; // Rosso
-            winnerColor = "#00e676";
+            barColor = "rgba(255, 82, 82, 0.3)"; 
+            winnerColor = "#00e676"; // Verde anche qui (Meno è meglio)
             icon = "▼"; 
         } else {
-            // Neutro (Blu) per Calorie, Grassi Totali, Carbo
             barColor = "rgba(52, 152, 219, 0.3)"; 
             winnerColor = "#3498db"; 
             icon = ""; 
@@ -1170,25 +1236,25 @@ function updateDetailPanel() {
 
         const unit = UNIT_MAP[feature] || "";
 
-        const row = container.append("div")
+        // Appendiamo le righe al "scrollableBody" invece che al container principale
+        const row = scrollableBody.append("div")
+            .style("height", `${rowH}px`)   
             .style("display", "grid")
             .style("grid-template-columns", `90px repeat(${products.length}, 1fr)`)
-            .style("gap", "8px")
-            .style("margin-bottom", "6px")
+            .style("gap", "6px") // Gap ridotto
             .style("align-items", "center");
 
         // Etichetta
         row.append("div")
             .text(feature)
-            .style("font-size", "0.7rem")
-            .style("color", "#888")
+            .style("font-size", "0.75rem")
+            .style("color", "#f4f4f4")
             .style("text-align", "right")
             .style("padding-right", "10px")
             .style("white-space", "nowrap")
             .style("overflow", "hidden")
             .style("text-overflow", "ellipsis");
 
-        // Calcolo Max Locale
         const localValues = products.map(p => p[feature] || 0);
         const maxLocal = Math.max(...localValues);
 
@@ -1197,8 +1263,8 @@ function updateDetailPanel() {
             const barWidthPercent = maxLocal > 0 ? (val / maxLocal) * 100 : 0;
             
             const cell = row.append("div")
-                .style("position", "relative") 
-                .style("height", "20px")
+                .style("position", "relative")
+                .style("height", "100%")                      // <-- riempie tutta l’altezza della riga
                 .style("background", "#1a1a1a")
                 .style("border-radius", "3px")
                 .style("overflow", "hidden");
@@ -1211,18 +1277,19 @@ function updateDetailPanel() {
                 .style("background", barColor)
                 .style("transition", "width 0.5s ease-out");
 
-            // Highlight Logica
             let isHighlight = false;
             if (type === "good") isHighlight = (val === maxLocal && val > 0);
             else if (type === "bad") isHighlight = (val === Math.min(...localValues) && val < maxLocal);
-            else isHighlight = (val === maxLocal && val > 0); // Neutro: evidenzia il più alto
+            else isHighlight = (val === maxLocal && val > 0); 
+            
             const unitStyle = isHighlight ? "opacity:1; font-weight:normal;" : "opacity:0.9;";
+
             // Testo
             cell.append("div")
                 .style("position", "absolute")
                 .style("width", "100%").style("height", "100%")
                 .style("display", "flex").style("align-items", "center").style("padding-left", "6px")
-                .style("font-size", "0.7rem")
+                .style("font-size", "clamp(9px, 1.4vh, 11px)")
                 .style("color", isHighlight ? "#fff" : "#bbb")
                 .style("font-weight", isHighlight ? "bold" : "normal")
                 .style("text-shadow", "0 1px 2px #000")
@@ -1232,8 +1299,33 @@ function updateDetailPanel() {
                 `);
         });
     });
+    if (!window.__detailsResizeObserver) {
+        window.__detailsResizeObserver = new ResizeObserver(() => {
+          const body = d3.select("#details-body");
+          if (body.empty()) return;
+      
+          // ricalcola row height e applica a tutte le righe (prime-level children)
+          const bodyNode = body.node();
+          const gapPx = 4;
+          const rows = bodyNode.children;
+          const N = rows.length;
+          if (!N) return;
+      
+          const minRowPx = 16;
+          const bodyH = bodyNode.getBoundingClientRect().height;
+          const h = (bodyH - (N - 1) * gapPx) / N;
+      
+          if (h < minRowPx + 1) body.style("overflow-y", "auto");
+          else body.style("overflow-y", "hidden");
+      
+          const finalH = Math.max(minRowPx, h);
+          for (const r of rows) r.style.height = `${finalH}px`;
+        });
+      }
+      window.__detailsResizeObserver.observe(scrollableBody.node());
 }
 
+  
 // --- HOVER EFFECT HELPERS ---
 
 // Disegna una linea temporanea "Ghost" nelle coordinate parallele
@@ -1273,6 +1365,6 @@ function showPreviewLine(product) {
 function hidePreviewLine() {
     svgParallel.selectAll(".preview-layer").remove();
 }
-
+  
 // Avvio
 init();
