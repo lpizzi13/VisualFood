@@ -5,10 +5,21 @@ let MARGIN_PARALLEL = { top: 80, right: 30, bottom: 20, left: 60 };
 const MARGIN_SCATTER = { top: 20, right: 20, bottom: 30, left: 40 };
 
 const COMPARE_COLORS = [
-    "#e74c3c", // 1. Rosso (Principale)
-    "#3498db", // 2. Blu (Confronto A)
-    "#f1c40f"  // 3. Giallo Oro (Confronto B)
+    "#ff0055", // Rosso Neon (Sel 1)
+    "#00ff00", // Lime Elettrico (Sel 2)
+    "#ffff00"  // Giallo Puro (Sel 3)
 ];
+
+// 2. COLORI CATEGORIE (DISTINTI)
+// Usiamo colori pastello saturi, ben separati nello spettro.
+const MACRO_COLORS = {
+    "Plant-based":     "#1B9E77", // teal/green
+    "Animal Protein":  "#D95F02", // orange
+    "Dairy & Cheese":  "#7570B3", // blue-violet
+    "Sweets & Snacks": "#E7298A", // magenta
+    "Fats & Oils":     "#E6AB02", // mustard/yellow
+    "Prepared/Other":  "#BDBDBD"  // light gray (neutro, “altro”)
+  };
 
 // Stato Globale
 let state = {
@@ -87,6 +98,7 @@ let scatterContainerSize = { width: 0, height: 0 };
 let tooltip;
 let selectedProductId = null;
 let dominanceMap = new Map(); // Lookup veloce ID -> Share
+let categoryMap = new Map();
 let yBrush;
 let scatterBrush;
 
@@ -94,9 +106,13 @@ let scatterBrush;
 
 // Helper per determinare il colore di un punto
 function getPointColor(id) {
+    // 1. Se Selezionato: Usa la palette di confronto (Rosso/Verde/Giallo)
     const idx = state.selectedIds.indexOf(id);
-    if (idx > -1) return COMPARE_COLORS[idx]; // È selezionato: usa il suo colore
-    return "#00e676"; // Non è selezionato: Verde base
+    if (idx > -1) return COMPARE_COLORS[idx]; 
+    
+    // 2. Se Contesto: Usa il colore della Categoria
+    const cat = categoryMap.get(id) || "Prepared/Other";
+    return MACRO_COLORS[cat];
 }
 
 // Helper per determinare l'opacità
@@ -109,12 +125,13 @@ function getPointOpacity(id) {
 
 // Helper per il raggio
 function getPointRadius(id) {
-    return state.selectedIds.includes(id) ? 10 : 4;
+    return state.selectedIds.includes(id) ? 5 : 4;
 }
 
 // Helper per il bordo
 function getPointStroke(id) {
-    return state.selectedIds.includes(id) ? "#333" : "transparent";
+    // Bordo bianco solo sui selezionati per farli "pop"
+    return state.selectedIds.includes(id) ? "#fff" : "none";
 }
 
 function getMacroCategory(originalCategory) {
@@ -174,6 +191,11 @@ async function init() {
         
         state.dataRaw = metadata.data;
         let rawFeatures = metadata.features;
+
+        state.dataRaw.forEach(d => {
+            dominanceMap.set(d.id, +d.dominant_share || 0); // Serve per i filtri slider
+            categoryMap.set(d.id, getMacroCategory(d.category)); // Serve per il colore
+        });
         
         const logicalOrder = [
             // --- ENERGIA & MACRO PRINCIPALI ---
@@ -224,6 +246,7 @@ async function init() {
         tooltip = d3.select("body").append("div")
         .attr("class", "d3-tooltip");
         updateDetailPanel()
+        drawScatterLegendBar();
     } catch (e) {
         console.error("Errore init:", e);
     }
@@ -764,7 +787,8 @@ function updateScatterplotVis() {
             .attr("fill", d => getPointColor(d.id))
             .attr("opacity", d => getPointOpacity(d.id))
             .attr("stroke", d => getPointStroke(d.id))
-            .attr("stroke-width", 2),
+            .attr("stroke-width", 2)
+            .style("cursor", "pointer"),
         
         // UPDATE: Punti esistenti (Movimento istantaneo + Aggiornamento Stile)
         update => update
@@ -775,6 +799,7 @@ function updateScatterplotVis() {
             .attr("fill", d => getPointColor(d.id))
             .attr("opacity", d => getPointOpacity(d.id))
             .attr("stroke", d => getPointStroke(d.id))
+            .style("cursor", "pointer")
     )
     .sort((a, b) => {
         const aSel = state.selectedIds.includes(a.id);
@@ -803,7 +828,7 @@ function updateScatterplotVis() {
         // Se il punto NON è già selezionato, facciamolo "brillare" per far capire che è cliccabile
         if (!state.selectedIds.includes(d.id)) {
             d3.select(this)
-            .attr("r", 12) // Ingrandiamo bene
+            .attr("r", 6) // Ingrandiamo bene
             .attr("opacity", 1)
             .attr("stroke", "#fff") 
             .attr("stroke-width", 2)
@@ -870,6 +895,35 @@ function updateScatterplotVis() {
         // EXIT: Rimuovi
         exit => exit.remove()
     );
+}
+
+function drawScatterLegendBar() {
+    const container = d3.select("#scatter-legend-bar");
+    container.html(""); // Reset
+
+    // Cicla le categorie e crea i badge
+    Object.entries(MACRO_COLORS).forEach(([label, color]) => {
+        const item = container.append("div")
+            .style("display", "flex")
+            .style("align-items", "center")
+            .style("gap", "6px")
+            .style("cursor", "help"); // Indica che è informativo
+
+        // Pallino Colorato
+        item.append("div")
+            .style("width", "10px")
+            .style("height", "10px")
+            .style("border-radius", "50%")
+            .style("background-color", color)
+            .style("border", "1px solid rgba(255,255,255,0.2)");
+
+        // Etichetta
+        item.append("span")
+            .text(label)
+            .style("font-size", "0.75rem")
+            .style("color", "#bdc3c7")
+            .style("font-weight", "500");
+    });
 }
 
 // --- FUNZIONI DI COORDINAMENTO (LINKING) ---
@@ -1149,7 +1203,6 @@ function updateDetailPanel() {
 
         header.append("div")
             .style("text-align", "center")
-            .style("cursor", "crosshair")
             .style("overflow", "hidden") // Necessario per contenere il testo
             .html(`
                 <div style="
@@ -1163,7 +1216,7 @@ function updateDetailPanel() {
                     ${displayName}
                 </div>
                 <div style="
-                    color:#888; 
+                    color:#f4f4f4; 
                     font-size:clamp(9px, 1.4vh, 11px); 
                     font-style:italic; 
                     margin-top:2px; 
@@ -1174,8 +1227,6 @@ function updateDetailPanel() {
                     ${displayCategory}
                 </div>
             `)
-            .on("mouseover", function() { /* ... invariato ... */ })
-            .on("mouseout", function() { /* ... invariato ... */ });
     });
 
     // --- 3. CONTAINER SCROLLABILE ---
