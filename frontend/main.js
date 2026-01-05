@@ -29,7 +29,8 @@ let state = {
     projection: [],
     minDominance: 1.0,
     selectedIds: [],
-    brushSelections: {}
+    brushSelections: {},
+    hiddenCategories: new Set()
 };
 
 const labelMap = {
@@ -218,7 +219,7 @@ async function init() {
         
         state.features = logicalOrder.filter(f => rawFeatures.includes(f));
         // Inizializza pesi a 1.0
-        state.features.forEach(f => state.weights[f] = 1.0);
+        state.features.forEach(f => state.weights[f] = 0.5);
         
         // Associa ID -> dominant_share per accesso O(1)
         state.dataRaw.forEach(d => {
@@ -682,6 +683,9 @@ function isProductVisible(product, id) {
     const share = dominanceMap.get(id);
     if (share < state.minDominance) return false;
 
+    const cat = categoryMap.get(id);
+    if (state.hiddenCategories.has(cat)) return false;
+
     // 2. Controllo Brushing Parallel Coordinates
     // (Usa la tua funzione helper esistente isProductBrushed)
     if (!isProductBrushed(product)) return false;
@@ -739,18 +743,26 @@ function updateScatterplotVis() {
 
     // --- 1. FILTRAGGIO DATI (Slider Purity) ---
     const filteredData = state.projection.filter(d => {
-        // 1. Filtro Purity
+        // 1. Filtro Purity (Veloce: usa Map)
         const share = dominanceMap.get(d.id);
         if (share < state.minDominance) return false;
 
-        // 2. Filtro Brush (Nuovo!)
-        // Nota: dobbiamo recuperare il dato grezzo per controllare i valori nutrizionali
-        // È costoso farlo qui per 5000 punti. 
-        // TRUCCO: Se non ci sono brush attivi, salta il controllo pesante.
-        if (Object.keys(state.brushSelections).length === 0) return true;
+        // 2. Filtro Categoria (Veloce: usa Map) - QUELLO CHE MANCAVA
+        // Se la categoria è nel set "hiddenCategories", nascondi il punto
+        const cat = categoryMap.get(d.id);
+        if (state.hiddenCategories.has(cat)) return false;
 
+        // 3. Filtro Brush (Lento: richiede ricerca dati grezzi)
+        // Ottimizzazione: Se non ci sono brush attivi, passa subito
+        const activeBrushes = Object.keys(state.brushSelections || {});
+        if (activeBrushes.length === 0) return true;
+
+        // Recuperiamo il dato grezzo solo se strettamente necessario
         const product = state.dataRaw.find(p => p.id === d.id);
-        return isProductBrushed(product);
+        
+        // Verifica se il prodotto rispetta i range del brush
+        // (Puoi usare la tua funzione isProductBrushed o controllare qui)
+        return isProductVisible(product, d.id); 
     });
 
     console.log(`📉 Scatterplot: visualizzo ${filteredData.length} punti.`);
@@ -899,30 +911,99 @@ function updateScatterplotVis() {
 
 function drawScatterLegendBar() {
     const container = d3.select("#scatter-legend-bar");
-    container.html(""); // Reset
+    container.html(""); 
 
-    // Cicla le categorie e crea i badge
+    // --- 1. CONFIGURAZIONE LAYOUT ESTESO ---
+    container
+        .style("display", "flex")
+        .style("width", "100%")           // <--- FONDAMENTALE: Occupa tutta la larghezza
+        .style("justify-content", "space-between") // <--- FONDAMENTALE: Distribuisce gli spazi
+        .style("align-items", "center")
+        .style("padding", "2px 2px");     // Margine minimo ai bordi estremi
+
+    // --- 2. LABEL "FILTER" (Opzionale: lasciamola all'inizio) ---
+    // La raggruppiamo col primo elemento visivamente o la lasciamo come item a sé stante
+    container.append("span")
+        .text("FILTER:")
+        .style("color", "#95a5a6")
+        .style("font-size", "11px")
+        .style("font-weight", "bold")
+        .style("margin-right", "0px"); // Lo spazio lo gestisce il flex container
+
+    // --- 3. ELEMENTI DELLA LEGENDA (Categorie) ---
     Object.entries(MACRO_COLORS).forEach(([label, color]) => {
+        const isHidden = state.hiddenCategories.has(label);
+        const opacity = isHidden ? 0.4 : 1;
+        const textDecoration = isHidden ? "line-through" : "none";
+        const filter = isHidden ? "grayscale(100%)" : "none";
+
         const item = container.append("div")
             .style("display", "flex")
             .style("align-items", "center")
-            .style("gap", "6px")
-            .style("cursor", "help"); // Indica che è informativo
+            .style("gap", "6px") 
+            .style("cursor", "pointer")
+            .style("opacity", opacity)
+            .style("filter", filter)
+            .style("transition", "transform 0.1s")
+            
+            // Eventi
+            .on("mouseover", function() { if(!isHidden) d3.select(this).style("transform", "scale(1.1)"); })
+            .on("mouseout", function() { d3.select(this).style("transform", "scale(1)"); })
+            .on("click", () => {
+                if (state.hiddenCategories.has(label)) state.hiddenCategories.delete(label);
+                else state.hiddenCategories.add(label);
+                
+                drawScatterLegendBar();
+                updateBrushVisuals();
+                updateScatterplotVis();
+            });
 
-        // Pallino Colorato
+        // Pallino
         item.append("div")
-            .style("width", "10px")
-            .style("height", "10px")
+            .style("width", "12px")
+            .style("height", "12px")
             .style("border-radius", "50%")
             .style("background-color", color)
             .style("border", "1px solid rgba(255,255,255,0.2)");
 
-        // Etichetta
+        // Testo (Uso label originale per estetica, o rimetti SHORT_LABELS se preferisci)
         item.append("span")
-            .text(label)
-            .style("font-size", "0.75rem")
-            .style("color", "#bdc3c7")
-            .style("font-weight", "500");
+            .text(label) 
+            .style("font-size", "11px") 
+            .style("color", "#ecf0f1")
+            .style("text-decoration", textDecoration)
+            .style("white-space", "nowrap");
+    });
+
+    // --- SEPARATORE ---
+    container.append("div")
+        .style("width","1px")
+        .style("height","15px")
+        .style("background-color","#444");
+
+    // --- GRUPPO SELEZIONI (Le teniamo raggruppate in un div unico per non spargerle) ---
+    // TRUCCO: Creiamo un sotto-contenitore per le selezioni, così i 3 pallini restano vicini
+    // e non vengono sparati via dallo space-between
+    const selectionGroup = container.append("div")
+        .style("display", "flex")
+        .style("align-items", "center")
+        .style("gap", "5px");
+
+    selectionGroup.append("span")
+        .text("SEL:")
+        .style("color","#7f8c8d")
+        .style("font-size","10px")
+        .style("font-weight","bold")
+        .style("margin-right", "4px");
+
+    COMPARE_COLORS.forEach(color => {
+        selectionGroup.append("div")
+            .style("width","10px")
+            .style("height","10px")
+            .style("border-radius","50%")
+            .style("background-color",color)
+            .style("border","1px solid #fff")
+            .style("box-shadow",`0 0 3px ${color}`);
     });
 }
 
@@ -1090,60 +1171,75 @@ function updateGhostLines(points) {
 }
 
 function setupSearch() {
-    console.log("🔍 Attivazione Ricerca Contestuale (Max 5)...");
+    console.log("🔍 Attivazione Ricerca...");
     
+    // 1. Seleziona input e il suo contenitore genitore
     const searchInput = d3.select("#product-search");
-    const dataList = d3.select("#food-list");
+    const parent = d3.select(".search-group"); // Assicurati che nel HTML il div genitore abbia questa classe
 
-    // (Nota: Non serve più calcolare uniqueFoods all'inizio, 
-    // perché la lista dei 'visibili' cambia dinamicamente)
+    // 2. IMPORTANTE: Rimuovi l'attributo list per evitare conflitti con il browser
+    searchInput.attr("list", null);
+    
+    // 3. Assicurati che il contenitore genitore sia relative (per posizionare la tendina)
+    parent.style("position", "relative");
+
+    // 4. Crea (o seleziona) il contenitore dei risultati
+    let resultsContainer = parent.select("#search-results-wrapper");
+    if (resultsContainer.empty()) {
+        resultsContainer = parent.append("div")
+            .attr("id", "search-results-wrapper");
+    }
 
     searchInput.on("input", function() {
         const val = this.value.toLowerCase().trim();
-        
-        dataList.html(""); // Pulisci suggerimenti
+        resultsContainer.html(""); // Reset
 
-        if (val.length < 1) return;
+        if (val.length < 2) { // Almeno 2 lettere
+            resultsContainer.style("display", "none");
+            return;
+        }
 
-        // --- FILTRAGGIO AVANZATO ---
-        // Cerchiamo solo tra i prodotti che:
-        // 1. Contengono il testo scritto
-        // 2. Sono attualmente VISIBILI (rispettano Purity e Brushing)
-        
-        const matches = state.dataRaw
-            .filter(d => {
-                // A. Check Nome
-                if (!d.food.toLowerCase().includes(val)) return false;
+        // Filtra prodotti VISIBILI che matchano il nome
+        const matches = state.dataRaw.filter(d => {
+            if (!d.food.toLowerCase().includes(val)) return false;
+            return isProductVisible(d, d.id);
+        });
 
-                // B. Check Visibilità (Purity + Brush)
-                // Se il prodotto è nascosto, lo ignoriamo dalla ricerca
-                return isProductVisible(d, d.id);
-            })
-            .map(d => d.food) // Prendiamo solo i nomi
-            // C. Rimuoviamo duplicati (se presenti)
-            .filter((v, i, a) => a.indexOf(v) === i)
-            // D. Ordiniamo e tagliamo
-            .sort((a, b) => a.localeCompare(b))
-            .slice(0, 5);
+        // Ordina
+        matches.sort((a, b) => a.food.localeCompare(b.food));
 
-        // Popola il datalist
-        matches.forEach(match => {
-            dataList.append("option").attr("value", match);
+        if (matches.length === 0) {
+            resultsContainer.style("display", "none");
+            return;
+        }
+
+        // Mostra tendina
+        resultsContainer.style("display", "block");
+
+        // Crea le righe
+        matches.forEach(product => {
+            resultsContainer.append("div")
+                .attr("class", "search-result-item")
+                .text(product.food)
+                .on("click", () => {
+                    // Azione click
+                    console.log("Selezionato:", product.food);
+                    if (!state.selectedIds.includes(product.id)) {
+                        toggleProduct(product.id);
+                    }
+                    // Reset UI
+                    searchInput.property("value", "");
+                    resultsContainer.style("display", "none");
+                });
         });
     });
 
-    // L'evento 'change' rimane identico a prima
-    searchInput.on("change", function() {
-        const val = this.value;
-        const found = state.dataRaw.find(d => d.food === val);
-        
-        if (found) {
-            console.log("🎯 Selezionato:", found.food);
-            if (!state.selectedIds.includes(found.id)) {
-                toggleProduct(found.id); 
-            }
-            this.value = ""; 
-            this.blur();
+    // Chiudi cliccando fuori
+    d3.select("body").on("click", (event) => {
+        const isInput = event.target.id === "product-search";
+        const isResult = event.target.closest("#search-results-wrapper");
+        if (!isInput && !isResult) {
+            resultsContainer.style("display", "none");
         }
     });
 }
