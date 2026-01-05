@@ -247,6 +247,7 @@ async function init() {
         tooltip = d3.select("body").append("div")
         .attr("class", "d3-tooltip");
         updateDetailPanel()
+        updateParallelLines();
         drawScatterLegendBar();
     } catch (e) {
         console.error("Errore init:", e);
@@ -268,8 +269,8 @@ function setupDominanceFilter() {
 
         // Aggiorna grafico
         updateScatterplotVis();
-        updateBrushVisuals();
         updateDetailPanel();
+        updateParallelLines();
     });
 }
 
@@ -346,23 +347,10 @@ function setupParallelCoordinates() {
         yParallel[d] = d3.scaleLinear().domain(extent).range([height, 0]);
     });
 
-    const bgLayer = svgParallel.append("g").attr("class", "background-layer");
+    const bgLayer = svgParallel.insert("g", ":first-child").attr("class", "layer-background");
 
     // Disegna Linee (Campione 20%)
-    const sampleData = state.dataRaw.length > 400 ? state.dataRaw.filter(() => Math.random() < 0.2) : state.dataRaw;
-    
-    bgLayer.selectAll("path")
-        .data(sampleData)
-        .enter().append("path")
-        .attr("class", "bg-line")
-        .attr("d", d => d3.line()(state.features.map(p => [xParallel(p), yParallel[p](d[p])])))
-        .style("fill", "none")
-        .style("stroke", "#bdc3c7")
-        .style("opacity", d => {
-            // Usa la stessa logica di updateParallelLines
-            return isProductVisible(d, d.id) ? 0.6 : 0.01; 
-        })
-        .style("stroke-width", 1);
+    const sampleData = state.dataRaw.filter(d => isProductVisible(d, d.id));
 
     svgParallel.append("g").attr("class", "highlight-layer");
 
@@ -429,32 +417,61 @@ function setupParallelCoordinates() {
                 updateProjection(); 
             })
         );
-    if (state.selectedIds.length > 0) {
-        updateParallelLines();
-    }
+    updateParallelLines();
     restoreBrushVisuals();
 }
 
 function updateParallelLines() {
-    // 1. Gestione Sfondo
-    svgParallel.selectAll(".bg-line")
-        // FIX COLORE: Usa sempre un grigio chiaro. 
-        // Prima usavamo #333 che sul nero spariva creando l'effetto "sfocato".
-        .style("stroke", "#bdc3c7") 
-        
-        // FIX OPACITÀ: Gestione netta della visibilità
-        .style("opacity", d => {
-            // A. Se il prodotto è nascosto (Purity o Brush), rendilo quasi invisibile
-            if (!isProductVisible(d, d.id)) return 0.01; 
+    // 1. FILTRA I DATI
+    const activeData = state.dataRaw.filter(d => isProductVisible(d, d.id));
 
-            // B. Se è visibile:
-            // - Se c'è una selezione attiva (pallini rossi), abbassa lo sfondo (focus context)
-            // - Se NON c'è selezione (reset), alza l'opacità a 0.6 così è ben nitido
-            return state.selectedIds.length > 0 ? 0.15 : 0.6;
-        })
-        // Opzionale: porta in primo piano le linee visibili se necessario, 
-        // ma di solito l'opacità basta.
-        .style("stroke-width", 1);
+    // --- HELPER: Generatore di linee locale ---
+    const getPath = (d) => {
+        const line = d3.line()
+            .defined(p => !isNaN(p[1])) 
+            .x(p => p[0])
+            .y(p => p[1]);
+
+        const points = state.features.map(feature => {
+            if (d[feature] === undefined || !yParallel[feature]) return [xParallel(feature), NaN];
+            return [xParallel(feature), yParallel[feature](d[feature])];
+        });
+        return line(points);
+    };
+
+    // 2. SELEZIONA (O CREA) IL LAYER SFONDO
+    // Questo è il fix per l'errore "insertBefore".
+    // Creiamo un contenitore specifico solo per le linee grigie.
+    let bgLayer = svgParallel.select("g.layer-background");
+    if (bgLayer.empty()) {
+        // Se non esiste, lo creiamo e lo mettiamo PRIMA di tutto (:first-child)
+        // così le linee stanno sotto agli assi.
+        bgLayer = svgParallel.insert("g", ":first-child").attr("class", "layer-background");
+    }
+
+    // 3. DISEGNA LE LINEE (Dentro il bgLayer, non svgParallel!)
+    bgLayer.selectAll("path.bg-line")
+        .data(activeData, d => d.id) 
+        .join(
+            enter => enter.append("path")
+                .attr("class", "bg-line")
+                .attr("d", d => getPath(d))
+                .style("fill", "none")
+                .style("stroke", "#bdc3c7")
+                .style("stroke-width", 1)
+                .style("opacity", 0)
+                .style("mix-blend-mode", "normal")
+                .transition().duration(500)
+                .style("opacity", 0.3),
+
+            update => update
+                .attr("d", d => getPath(d))
+                .style("display", "block")
+                .style("stroke", "#bdc3c7")
+                .style("opacity", d => state.selectedIds.length > 0 ? 0.05 : 0.3),
+
+            exit => exit.remove()
+        );
 
     const highlightLayer = svgParallel.select(".highlight-layer");
     highlightLayer.html(""); // Reset
@@ -584,55 +601,13 @@ function brushed(event) {
     }
 
     // 3. Aggiorna le viste
-    updateBrushVisuals();
+    updateParallelLines();
+    updateScatterplotVis()
     if (event.type === 'end') {
         updateScatterplotVis();
         updateDetailPanel();
     }
 }
-
-function updateBrushVisuals() {
-    // A. AGGIORNA SCATTERPLOT
-    // Dobbiamo dire allo scatterplot quali punti sono "attivi" (brushed) e quali no.
-    // Invece di filtrare via i punti (rimuoverli), li rendiamo trasparenti, così si vede il contesto.
-    
-    svgScatter.select(".dots").selectAll("circle")
-        .attr("display", d => {
-            // 1. Check Purity (Fondamentale mantenere coerenza col filtro esistente)
-            const purity = dominanceMap.get(d.id);
-            if (purity < state.minDominance) return "none"; // Nascondi completamente se non passa la purity
-
-            // 2. Check Brushes
-            const product = state.dataRaw.find(p => p.id === d.id);
-            if (!product) return "none";
-
-            const isBrushed = isProductBrushed(product);
-            
-            // Se è spazzolato lo mostriamo, altrimenti "none" (o opacity bassa se preferisci context)
-            // Consiglio: "none" per chiarezza se sono tanti dati, opacity ridotta se sono pochi.
-            // Proviamo con Opacity nel prossimo step, qui usiamo display per performance estrema.
-            return isBrushed ? "block" : "none";
-        });
-
-    // B. AGGIORNA PARALLEL COORDINATES (Linee di Sfondo)
-    // Nascondiamo le linee grigie che non rientrano nella selezione
-    svgParallel.selectAll(".bg-line")
-        .style("stroke", "#bdc3c7")
-        .style("opacity", d => {
-             // Se c'è una selezione specifica (rosso/blu), lo sfondo è quasi invisibile (0.05)
-             // Altrimenti è 0.4.
-             const baseOpacity = state.selectedIds.length > 0 ? 0.15 : 0.6;
-             
-             // Se il prodotto non passa il brush, diventa invisibile
-             return isProductVisible(d, d.id) ? baseOpacity : 0.02; // 0.02 = quasi invisibile ma c'è
-        })
-        // Opzionale: colora di grigio scuro quelle non selezionate per farle sparire nel nero
-        .style("display", d => isProductVisible(d, d.id) ? "block" : "none")
-        .style("stroke-width", 1);
-
-    updateDetailPanel()
-}
-
 // Ripristina i rettangoli grigi sugli assi basandosi sui dati salvati
 function restoreBrushVisuals() {
     // Se non ci sono selezioni salvate, non fare nulla
@@ -954,8 +929,8 @@ function drawScatterLegendBar() {
                 else state.hiddenCategories.add(label);
                 
                 drawScatterLegendBar();
-                updateBrushVisuals();
                 updateScatterplotVis();
+                updateParallelLines();
             });
 
         // Pallino
@@ -1064,7 +1039,7 @@ function resetBrushing() {
     }
 
     // 3. Aggiorna viste (mostra di nuovo tutte le linee di sfondo e i puntini)
-    updateBrushVisuals();   
+    updateParallelLines();   
     updateScatterplotVis(); 
 }
 
