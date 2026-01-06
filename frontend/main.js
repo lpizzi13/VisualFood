@@ -486,7 +486,7 @@ function updateParallelLines() {
                 .style("stroke-width", 1)
                 .style("opacity", 0)
                 .style("mix-blend-mode", "normal")
-                .transition().duration(500)
+                .transition().duration(300)
                 .style("opacity", 0.3),
 
             update => update
@@ -1105,9 +1105,6 @@ function brushedScatter(event) {
         return px >= x0 && px <= x1 && py >= y0 && py <= y1;
     });
 
-    svgParallel.selectAll(".bg-line")
-        .style("opacity", d => isProductVisible(d, d.id) ? 0.15 : 0.02);
-    // 2. Disegna queste linee nelle Parallel Coordinates
     updateGhostLines(brushedPoints);
 }
 
