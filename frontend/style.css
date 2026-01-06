@@ -41,14 +41,14 @@ header {
     color: white;
     display: flex;
     align-items: center;
-    justify-content: space-between; /* Titolo a sx, Controlli centro, Stats dx */
+    /* justify-content: space-between;  <-- RIMUOVI QUESTO (o lascialo, flex-grow lo sovrascriverà) */
     padding: 0 20px;
     border-radius: var(--border-radius);
     box-shadow: 0 4px 6px rgba(0,0,0,0.3);
     border-bottom: 1px solid #34495e;
     min-height: 60px; 
-    flex-wrap: wrap; /* Permette agli elementi di andare a capo su mobile */
-    gap: 10px; /* Spazio verticale quando vanno a capo */
+    flex-wrap: nowrap; /* <--- IMPORTANTE: Impedisce che vada a capo su desktop */
+    gap: 20px;         /* Spazio minimo tra i 3 blocchi principali */
     overflow: visible;
 }
 
@@ -63,18 +63,34 @@ header {
 .header-controls {
     display: flex;
     align-items: center;
-    gap: 25px; /* Spazio tra Search e Slider */
-    background: rgba(0,0,0,0.2); /* Leggero sfondo per raggrupparli */
-    padding: 5px 20px;
+    gap: 15px; /* Spazio tra search, separatore e slider */
+    background: rgba(0,0,0,0.2); 
+    padding: 5px 15px;
     border-radius: 30px;
     border: 1px solid #34495e;
-    flex-shrink: 0;
+    
+    /* --- LA MAGIA --- */
+    flex: 1;          /* Cresci e occupa tutto lo spazio disponibile */
+    width: auto;      /* Reset di eventuali larghezze fisse */
+    max-width: 100%;  /* Sicurezza */
 }
 
-.control-group {
+.control-group.search-group {
     display: flex;
     align-items: center;
     gap: 10px;
+    
+    /* --- LA MAGIA PARTE 2 --- */
+    flex: 1; /* Spingi lo slider a destra e prenditi lo spazio */
+}
+
+/* Lo slider invece NON deve crescere */
+.control-group.slider-group {
+    display: flex;        /* <--- AGGIUNTO: Allinea label e input */
+    align-items: center;  /* <--- AGGIUNTO: Centra verticalmente */
+    gap: 10px;            /* Distanza tra testo e slider */
+    flex: 0 0 auto; 
+    white-space: nowrap;
 }
 
 /* Stile Input Ricerca */
@@ -85,15 +101,19 @@ header {
     padding: 5px 12px;
     border-radius: 15px;
     font-size: 0.9rem;
-    width: 200px;
+    
+    /* --- LA MAGIA PARTE 3 --- */
+    width: 100%;      /* Riempi tutto il search-group */
+    min-width: 100px; /* Evita che sparisca se stringi troppo */
     outline: none;
     transition: all 0.2s ease;
 }
 
+/* Rimuovi larghezze fisse al focus */
 #product-search:focus {
     border-color: var(--green-accent);
-    width: 240px; /* Si allarga al focus */
     box-shadow: 0 0 5px rgba(0, 230, 118, 0.3);
+    width: 100%; /* Forza il 100% anche al focus */
 }
 
 .search-icon { font-size: 1rem; opacity: 0.7; }
@@ -137,14 +157,18 @@ header {
 .stats span { color: var(--green-accent); font-weight: bold; }
 
 @media (max-width: 900px) {
-    .header-left h1 span {
-        display: none; /* Nasconde "| Preference Explorer" */
+    header {
+        flex-wrap: wrap; /* Su schermi piccoli, permetti di andare a capo */
+        height: auto;
+        padding: 10px;
     }
+    
     .header-controls {
-        gap: 10px;
+        order: 3; /* Metti i controlli sotto titolo e stats */
+        width: 100%; /* Occupa tutta la riga sotto */
+        margin: 10px 0;
+        flex: 0 0 auto; /* Smetti di essere elastico in orizzontale */
     }
-    #product-search { width: 150px; }
-    #product-search:focus { width: 180px; }
 }
 
 /* MOBILE (Sotto 650px): Impila tutto verticalmente */
