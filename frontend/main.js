@@ -401,19 +401,44 @@ function setupParallelCoordinates() {
         .style("fill", "#8e44ad")
         .style("cursor", "ns-resize")
         .call(d3.drag()
-            .on("drag", function(event, d) {
-                const newY = Math.max(sliderTop, Math.min(sliderBottom, event.y));
-                d3.select(this).attr("y", newY - 6);
-                
-                // Aggiorna state locale
-                const newWeight = sliderScale.invert(newY);
-                state.weights[d] = newWeight;
-                
-                // Feedback opacità asse
-                d3.select(this.parentNode).style("opacity", 0.2 + (newWeight * 0.8));
+            .on("start", function() {
+                d3.select(this).style("cursor", "grabbing");
             })
-            .on("end", () => {
-                // Trigger aggiornamento Scatterplot
+            .on("drag", function(event, d) {
+                // 1. Clamp: limitiamo il mouse dentro l'area dello slider
+                const currentY = Math.max(sliderTop, Math.min(sliderBottom, event.y));
+                
+                // 2. Invertiamo la scala per ottenere il valore "grezzo" (es. 0.34, 0.88)
+                const rawWeight = sliderScale.invert(currentY);
+
+                // 3. LOGICA DI SNAPPING (Il cuore della modifica)
+                const steps = [0, 0.5, 1];
+                
+                // Trova il valore più vicino tra 0, 0.5 e 1
+                const snappedWeight = steps.reduce((prev, curr) => 
+                    Math.abs(curr - rawWeight) < Math.abs(prev - rawWeight) ? curr : prev
+                );
+
+                // 4. Aggiorna lo stato col valore "pulito"
+                state.weights[d] = snappedWeight;
+
+                // 5. Aggiorna la posizione VISIVA (Forziamo la maniglia sul valore snappato)
+                // Non usiamo 'currentY' (mouse), ma ricalcoliamo la Y precisa del valore snappato
+                const finalY = sliderScale(snappedWeight); 
+                d3.select(this).attr("y", finalY - 6); // -6 perché è centrato (rect height 12)
+
+                // 6. Feedback Visivo (Opacità e Colore)
+                // Opacità asse
+                d3.select(this.parentNode).style("opacity", 0.2 + (snappedWeight * 0.8));
+                
+                // Colore Maniglia (Opzionale ma consigliato per UX)
+                // Grigio se 0 (spento), Blu se 0.5, Rosso/Viola se 1 (importante)
+                const color = snappedWeight === 0 ? "#95a5a6" : (snappedWeight === 1 ? "#e74c3c" : "#8e44ad");
+                d3.select(this).style("fill", color);
+            })
+            .on("end", function() {
+                d3.select(this).style("cursor", "ns-resize");
+                // Aggiorna proiezione (pesante) solo alla fine
                 updateProjection(); 
             })
         );
