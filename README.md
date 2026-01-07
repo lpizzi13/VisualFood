@@ -69,5 +69,33 @@ The project requires two open terminals: one to run the **Backend** (Python/Flas
 ### Step 1: Start the Backend Server (API)
 Open a terminal in the project folder (ensure your virtual env is active) and run:
 
+
 ```bash
 python server.py
+```
+
+### Step 2: Start the Frontend
+To avoid browser security issues (CORS) when loading local files, use Python's built-in HTTP server.
+
+Open a **second terminal** in the project folder 'frontend' and run:
+
+```bash
+python -m http.server 8000
+```
+
+### Step 3: Explore
+Open your web browser and navigate to: 👉 http://localhost:8000
+
+### 📂 Project Structure
+frontend/index.html: Main HTML structure of the interface.
+
+frontend/style.css: CSS styles for the dark mode layout and responsive design.
+
+frontend/main.js: D3.js logic for visualizations (Scatterplot, PCP) and state management.
+
+backend/server.py: Flask Backend that handles the Weighted PCA calculation.
+backend/data.py: Code that create the cleanest_food dataset from the USDA zip (ETL operations).
+
+data/cleaned_food.csv: Pre-processed nutritional dataset (Source: USDA).
+
+requirements.txt: List of required Python libraries.
