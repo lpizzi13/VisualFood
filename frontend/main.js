@@ -5,20 +5,20 @@ let MARGIN_PARALLEL = { top: 80, right: 30, bottom: 20, left: 60 };
 const MARGIN_SCATTER = { top: 20, right: 20, bottom: 30, left: 40 };
 
 const COMPARE_COLORS = [
-    "#ff0055", // Rosso Neon (Sel 1)
-    "#00ff00", // Lime Elettrico (Sel 2)
-    "#ffff00"  // Giallo Puro (Sel 3)
-];
+    "#00E5FF", // CIANO NEON (Sel 1)
+    "#FF2D95", // FUCSIA NEON (Sel 2)
+    "#7CFF00"  // LIME-GIALLO (Sel 3)
+  ];
 
 // 2. COLORI CATEGORIE (DISTINTI)
 // Usiamo colori pastello saturi, ben separati nello spettro.
 const MACRO_COLORS = {
-    "Plant-based":     "#1B9E77", // teal/green
-    "Animal Protein":  "#D95F02", // orange
-    "Dairy & Cheese":  "#7570B3", // blue-violet
-    "Sweets & Snacks": "#E7298A", // magenta
-    "Fats & Oils":     "#E6AB02", // mustard/yellow
-    "Prepared/Other":  "#BDBDBD"  // light gray (neutro, “altro”)
+    "Plant-based":     "#1B9E77", // teal
+    "Animal Protein":  "#D95F02", // arancio
+    "Dairy & Cheese":  "#7570B3", // blu-viola
+    "Sweets & Snacks": "#C51B7D", // magenta scurito
+    "Fats & Oils":     "#E6AB02", // senape
+    "Prepared/Other":  "#8C8C8C"  // grigio medio (non bianco)
   };
 
 // Stato Globale
@@ -104,7 +104,151 @@ let yBrush;
 let scatterBrush;
 
 
-
+function matchesAny(text, regexList) {
+    return regexList.some((rx) => rx.test(text));
+  }
+  
+  const RX = {
+    fats: [
+      /\boils?\b/,
+      /\bbutter\b/,
+      /\blard\b/,
+      /\bmargarine\b/,
+      /\bshortening\b/,
+      /\bmayonnaise\b/,
+      /\bdressings?\b/,
+    ],
+  
+    sweets: [
+      /\bcandy\b/,
+      /\bchocolate\b/,
+      /\bcookies?\b/,
+      /\bbrownies?\b/,
+      /\bcakes?\b/,              // NON prende "pancakes"
+      /\bpies?\b/,               // NON prende "pieces"
+      /\bdesserts?\b/,
+      /\bice\s+cream\b/,
+      /\bdoughnuts?\b/,
+      /\bpastr(y|ies)\b/,
+      /\bcrackers?\b/,
+      /\bchips?\b/,
+      /\bsnacks?\b/,
+      /\bpretzels?\b/,
+      /\bpopcorn\b/,
+      /\bsugars?\b/,
+      /\bhoney\b/,
+      /\bjams?\b/,
+      /\bsyrups?\b/,
+      /\bpudding\b/,
+      /\bgelatins?\b/,
+      /\bnachos?\b/,
+      /\bcereal\s+bars?\b/,
+      /\bnutrition\s+bars?\b/,
+    ],
+  
+    animal: [
+      /\bbeef\b/,
+      /\bpork\b/,
+      /\bchicken\b/,
+      /\bturkey\b/,
+      /\blamb\b/,
+      /\bmeats?\b/,              // "meat-alternative" è gestito PRIMA come Plant-based
+      /\bsausages?\b/,
+      /\bfrankfurters?\b/,
+      /\bbacon\b/,
+      /\bham\b/,
+      /\beggs?\b/,
+      /\bpoultry\b/,
+      /\bfish\b/,
+      /\bseafood\b/,
+      /\bshellfish\b/,
+      /\bshrimp\b/,
+      /\btuna\b/,
+      /\bsalmon\b/,
+      /\bburgers?\b/,
+    ],
+  
+    dairy: [
+      /\bmilk\b/,
+      /\bcheese\b/,
+      /\byogurt\b/,
+      /\bcream\b/,
+      /\bdairy\b/,
+    ],
+  
+    plant: [
+      /\bfruits?\b/,
+      /\bvegetables?\b/,
+      /\bbeans?\b/,
+      /\bpeas?\b/,
+      /\blegumes?\b/,
+      /\bnuts?\b/,               // NON prende "nutritional"
+      /\bseeds?\b/,
+      /\bgrains?\b/,
+      /\bcereals?\b/,
+      /\brice\b/,
+      /\bpasta\b/,
+      /\bnoodles?\b/,
+      /\bbreads?\b/,
+      /\bpotato(?:es)?\b/,
+      /\btofu\b/,
+      /\bsoy\b/,
+      /\bcorn\b/,
+      /\boat\b/,
+      /\btortillas?\b/,
+      /\bbagels?\b/,
+      /\bmuffins?\b/,
+      /\bbiscuits?\b/,
+      /\bbuns?\b/,
+      /\brolls?\b/,
+      /\bpancakes?\b/,
+      /\bwaffles?\b/,
+    ],
+  };
+  
+  function getMacroCategory(originalCategory) {
+    if (!originalCategory) return "Prepared/Other";
+    const c = String(originalCategory).trim().toLowerCase();
+    if (!c) return "Prepared/Other";
+  
+    // 0) Override specifici del dataset
+    if (c === "vegetable sandwiches/burgers") return "Plant-based";
+    if (c === "soy and meat-alternative products") return "Plant-based";
+  
+    // 1) Override Plant-based (alternative vegetali)
+    if (c.includes("plant-based")) return "Plant-based";
+    if (
+      c.includes("meat-alternative") ||
+      c.includes("meat alternative") ||
+      c.includes("meat substitute") ||
+      c.includes("meatless")
+    ) return "Plant-based";
+  
+    // 2) Prepared/Other (piatti composti che vuoi fuori da Dairy/Plant/Animal “puri”)
+    if (/\bsandwich(?:es)?\b/.test(c) || /\bpizza\b/.test(c)) return "Prepared/Other";
+    if (/\bsoups?\b|\bbroth\b/.test(c) || /\bmixed\s+dishes?\b/.test(c)) return "Prepared/Other";
+    if (/\bcondiments?\b|\bsauces?\b|\bdips?\b|\bgrav(?:y|ies)\b/.test(c)) return "Prepared/Other";
+    if (/\b(egg rolls?)\b|\bdumplings?\b|\bsushi\b/.test(c)) return "Prepared/Other";
+  
+    // 3) Fats & Oils
+    if (matchesAny(c, RX.fats)) return "Fats & Oils";
+  
+    // 4) Sweets & Snacks
+    if (matchesAny(c, RX.sweets)) return "Sweets & Snacks";
+  
+    // 5) Animal Protein
+    if (matchesAny(c, RX.animal)) return "Animal Protein";
+  
+    // 6) Dairy & Cheese
+    if (matchesAny(c, RX.dairy)) return "Dairy & Cheese";
+  
+    // 7) Plant-based
+    if (matchesAny(c, RX.plant) || /\bjuice\b/.test(c) || c.includes("smoothies"))
+      return "Plant-based";
+  
+    return "Prepared/Other";
+  }
+  
 // Helper per determinare il colore di un punto
 function getPointColor(id) {
     // 1. Se Selezionato: Usa la palette di confronto (Rosso/Verde/Giallo)
@@ -135,54 +279,6 @@ function getPointStroke(id) {
     return state.selectedIds.includes(id) ? "#fff" : "none";
 }
 
-function getMacroCategory(originalCategory) {
-    if (!originalCategory) return "Prepared/Other";
-    const c = originalCategory.toLowerCase();
-  
-    // 1) Fats & oils (very specific, override)
-    if (
-      c.includes("oil") || c.includes("butter") || c.includes("lard") ||
-      c.includes("margarine") || c.includes("shortening") ||
-      c.includes("mayonnaise") || c.includes("dressing")
-    ) return "Fats & Oils";
-  
-    // 2) Dairy
-    if (
-      c.includes("milk") || c.includes("cheese") || c.includes("yogurt") ||
-      c.includes("cream") || c.includes("dairy")
-    ) return "Dairy & Cheese";
-  
-    // 3) Animal protein
-    if (
-      c.includes("beef") || c.includes("pork") || c.includes("chicken") ||
-      c.includes("turkey") || c.includes("meat") || c.includes("sausage") ||
-      c.includes("fish") || c.includes("seafood") || c.includes("egg") ||
-      c.includes("poultry") || c.includes("lamb") || c.includes("bacon") ||
-      c.includes("ham") || c.includes("shrimp") || c.includes("tuna") ||
-      c.includes("salmon") || c.includes("frankfurter")
-    ) return "Animal Protein";
-  
-    // 4) Sweets & snacks
-    if (
-      c.includes("candy") || c.includes("chocolate") || c.includes("cookie") ||
-      c.includes("cake") || c.includes("pie") || c.includes("dessert") ||
-      c.includes("ice cream") || c.includes("doughnut") || c.includes("pastry") ||
-      c.includes("cracker") || c.includes("chips") || c.includes("snack") ||
-      c.includes("sugar") || c.includes("honey") || c.includes("jam") ||
-      c.includes("sweet")
-    ) return "Sweets & Snacks";
-  
-    // 5) Plant-based staples + produce
-    if (
-      c.includes("fruit") || c.includes("vegetab") || c.includes("bean") ||
-      c.includes("legume") || c.includes("nut") || c.includes("seed") ||
-      c.includes("grain") || c.includes("cereal") || c.includes("rice") ||
-      c.includes("pasta") || c.includes("bread") || c.includes("potato") ||
-      c.includes("tofu") || c.includes("soy")
-    ) return "Plant-based";
-  
-    return "Prepared/Other";
-  }
 
 async function init() {
     console.log("🚀 Avvio applicazione...");
@@ -956,6 +1052,7 @@ function drawScatterLegendBar() {
                 drawScatterLegendBar();
                 updateScatterplotVis();
                 updateParallelLines();
+                updateDetailPanel();
             });
 
         // Pallino
