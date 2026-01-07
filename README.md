@@ -71,7 +71,7 @@ Open a terminal in the project folder (ensure your virtual env is active) and ru
 
 
 ```bash
-python server.py
+python backend/server.py
 ```
 
 ### Step 2: Start the Frontend
