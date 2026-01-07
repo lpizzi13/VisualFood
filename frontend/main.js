@@ -1163,6 +1163,7 @@ function resetBrushing() {
     // 3. Aggiorna viste (mostra di nuovo tutte le linee di sfondo e i puntini)
     updateParallelLines();   
     updateScatterplotVis(); 
+    updateDetailPanel();
 }
 
 function brushedScatter(event) {
